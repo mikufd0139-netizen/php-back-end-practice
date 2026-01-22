@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>控制台 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item active">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>控制台</h1>
+            <p>欢迎回来，这是系统数据概览</p>
+        </div>
+
+        <!-- 统计卡片 -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card primary">
+                <div class="stat-title">用户总数</div>
+                <div class="stat-value" id="totalUsers">-</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-title">正常用户</div>
+                <div class="stat-value" id="activeUsers">-</div>
+            </div>
+            <div class="stat-card danger">
+                <div class="stat-title">已禁用</div>
+                <div class="stat-value" id="disabledUsers">-</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-title">今日新增</div>
+                <div class="stat-value" id="todayUsers">-</div>
+            </div>
+        </div>
+
+        <!-- 最近注册用户 -->
+        <div class="card">
+            <div class="card-header">
+                <h2>最近注册用户</h2>
+                <a href="users.html" class="btn btn-primary btn-sm">查看全部</a>
+            </div>
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <table class="table" id="usersTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>邮箱</th>
+                            <th>手机号</th>
+                            <th>状态</th>
+                            <th>注册时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 检查登录状态
+        if (!AdminAuth.requireLogin()) {
+            // 会自动跳转到登录页
+        }
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAdminInfo();
+            loadStats();
+            loadRecentUsers();
+        });
+
+        // 加载管理员信息
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            if (user) {
+                document.getElementById('adminName').textContent = user.username;
+            }
+        }
+
+        // 加载统计数据
+        async function loadStats() {
+            const result = await AdminAPI.getUserCount();
+            
+            if (result.success) {
+                document.getElementById('totalUsers').textContent = result.data.total;
+                document.getElementById('activeUsers').textContent = result.data.active;
+                document.getElementById('disabledUsers').textContent = result.data.disabled;
+                document.getElementById('todayUsers').textContent = result.data.today;
+            } else {
+                // 可能是未登录或权限不足
+                if (result.message.includes('登录') || result.message.includes('权限')) {
+                    AdminAuth.clearUser();
+                    window.location.href = 'login.html';
+                }
+            }
+        }
+
+        // 加载最近用户
+        async function loadRecentUsers() {
+            const result = await AdminAPI.getUsers(1, 5);
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            if (result.success) {
+                document.getElementById('usersTable').style.display = 'table';
+                
+                const tbody = document.getElementById('usersBody');
+                tbody.innerHTML = '';
+                
+                result.data.users.forEach(user => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${user.id}</td>
+                        <td>${user.username}</td>
+                        <td>${user.email || '-'}</td>
+                        <td>${user.phone || '-'}</td>
+                        <td>
+                            <span class="tag ${user.status === 1 ? 'tag-success' : 'tag-danger'}">
+                                ${user.status_name}
+                            </span>
+                        </td>
+                        <td>${user.created_at}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+    </script>
+</body>
+</html>

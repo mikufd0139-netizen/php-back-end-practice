@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item active">👥 用户管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>用户管理</h1>
+            <p>管理系统中的所有用户</p>
+        </div>
+
+        <!-- 操作提示 -->
+        <div class="alert alert-success" id="successAlert" style="display: none;"></div>
+        <div class="alert alert-error" id="errorAlert" style="display: none;"></div>
+
+        <!-- 用户列表 -->
+        <div class="card">
+            <div class="card-header">
+                <h2>用户列表</h2>
+                <span id="totalInfo">共 0 个用户</span>
+            </div>
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <div class="empty" id="empty" style="display: none;">暂无用户数据</div>
+                
+                <table class="table" id="usersTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>用户名</th>
+                            <th>邮箱</th>
+                            <th>手机号</th>
+                            <th>角色</th>
+                            <th>状态</th>
+                            <th>注册时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersBody">
+                    </tbody>
+                </table>
+
+                <!-- 分页 -->
+                <div class="pagination" id="pagination" style="display: none;">
+                    <button id="prevBtn" onclick="prevPage()">上一页</button>
+                    <span class="page-info" id="pageInfo">第 1 页 / 共 1 页</span>
+                    <button id="nextBtn" onclick="nextPage()">下一页</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 分页状态
+        let currentPage = 1;
+        let totalPages = 1;
+        const pageSize = 10;
+
+        // 检查登录状态
+        if (!AdminAuth.requireLogin()) {
+            // 会自动跳转
+        }
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAdminInfo();
+            loadUsers();
+        });
+
+        // 加载管理员信息
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            if (user) {
+                document.getElementById('adminName').textContent = user.username;
+            }
+        }
+
+        // 加载用户列表
+        async function loadUsers() {
+            showLoading();
+            
+            const result = await AdminAPI.getUsers(currentPage, pageSize);
+            
+            hideLoading();
+            
+            if (result.success) {
+                const { users, total, page, total_pages } = result.data;
+                
+                currentPage = page;
+                totalPages = total_pages;
+                
+                document.getElementById('totalInfo').textContent = `共 ${total} 个用户`;
+                
+                if (users.length === 0) {
+                    document.getElementById('empty').style.display = 'block';
+                    document.getElementById('usersTable').style.display = 'none';
+                    document.getElementById('pagination').style.display = 'none';
+                } else {
+                    document.getElementById('empty').style.display = 'none';
+                    document.getElementById('usersTable').style.display = 'table';
+                    document.getElementById('pagination').style.display = 'flex';
+                    
+                    renderUsers(users);
+                    updatePagination();
+                }
+            } else {
+                showError(result.message);
+                if (result.message.includes('登录') || result.message.includes('权限')) {
+                    AdminAuth.clearUser();
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 1500);
+                }
+            }
+        }
+
+        // 渲染用户列表
+        function renderUsers(users) {
+            const tbody = document.getElementById('usersBody');
+            tbody.innerHTML = '';
+            
+            users.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.id}</td>
+                    <td>${user.username}</td>
+                    <td>${user.email || '-'}</td>
+                    <td>${user.phone || '-'}</td>
+                    <td>
+                        <span class="tag ${user.role === 1 ? 'tag-blue' : ''}">
+                            ${user.role_name}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="tag ${user.status === 1 ? 'tag-success' : 'tag-danger'}">
+                            ${user.status_name}
+                        </span>
+                    </td>
+                    <td>${user.created_at}</td>
+                    <td>
+                        ${user.role !== 1 ? `
+                            ${user.status === 1 
+                                ? `<button class="btn btn-danger btn-sm" onclick="disableUser(${user.id})">禁用</button>`
+                                : `<button class="btn btn-success btn-sm" onclick="enableUser(${user.id})">启用</button>`
+                            }
+                        ` : '<span style="color:#999">-</span>'}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 更新分页
+        function updatePagination() {
+            document.getElementById('pageInfo').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+            document.getElementById('prevBtn').disabled = currentPage <= 1;
+            document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+        }
+
+        // 上一页
+        function prevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                loadUsers();
+            }
+        }
+
+        // 下一页
+        function nextPage() {
+            if (currentPage < totalPages) {
+                currentPage++;
+                loadUsers();
+            }
+        }
+
+        // 禁用用户
+        async function disableUser(userId) {
+            if (!confirm('确定要禁用该用户吗？')) return;
+            
+            const result = await AdminAPI.disableUser(userId);
+            
+            if (result.success) {
+                showSuccess('用户已禁用');
+                loadUsers();
+            } else {
+                showError(result.message);
+            }
+        }
+
+        // 启用用户
+        async function enableUser(userId) {
+            const result = await AdminAPI.enableUser(userId);
+            
+            if (result.success) {
+                showSuccess('用户已启用');
+                loadUsers();
+            } else {
+                showError(result.message);
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        // UI 辅助函数
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('usersTable').style.display = 'none';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showSuccess(message) {
+            const alert = document.getElementById('successAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+            setTimeout(() => { alert.style.display = 'none'; }, 3000);
+        }
+
+        function showError(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+            setTimeout(() => { alert.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+</html>

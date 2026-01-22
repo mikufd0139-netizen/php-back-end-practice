@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员登录 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #001529 0%, #003a8c 100%);
+        }
+        .login-container {
+            width: 400px;
+            background: #fff;
+            border-radius: 8px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .login-container h1 {
+            text-align: center;
+            color: #001529;
+            margin-bottom: 10px;
+        }
+        .login-container .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #1890ff;
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: #1890ff;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .login-btn:hover {
+            background: #40a9ff;
+        }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: #1890ff;
+            text-decoration: none;
+        }
+        .alert {
+            margin-bottom: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>🛒 Shop 后台</h1>
+        <p class="subtitle">管理员登录</p>
+
+        <div class="alert alert-error" id="errorAlert"></div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="account">管理员账号</label>
+                <input type="text" id="account" placeholder="用户名 / 邮箱 / 手机号" required>
+            </div>
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" placeholder="请输入密码" required>
+            </div>
+            <button type="submit" class="login-btn">登 录</button>
+        </form>
+
+        <p class="back-link">
+            <a href="../index.html">← 返回前台首页</a>
+        </p>
+    </div>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 如果已登录，跳转到后台首页
+        if (AdminAuth.isLoggedIn()) {
+            window.location.href = 'index.html';
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const account = document.getElementById('account').value.trim();
+            const password = document.getElementById('password').value;
+
+            hideError();
+
+            const result = await AdminAPI.login(account, password);
+
+            if (result.success) {
+                // 登录成功，验证是否为管理员
+                const profileResult = await AdminAPI.getUserCount();
+                
+                if (profileResult.success) {
+                    // 有权限访问管理接口，说明是管理员
+                    AdminAuth.setUser(result.data);
+                    window.location.href = 'index.html';
+                } else {
+                    // 没有管理员权限
+                    await AdminAPI.logout();
+                    showError('您不是管理员，无法登录后台');
+                }
+            } else {
+                showError(result.message);
+            }
+        });
+
+        function showError(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('errorAlert').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
