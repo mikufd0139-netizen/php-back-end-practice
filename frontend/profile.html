@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>个人中心 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links">
+            <a href="profile.html">👤 个人中心</a>
+            <a href="#" onclick="handleLogout()">退出</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>个人中心</h1>
+        
+        <!-- 加载状态 -->
+        <div class="loading" id="loading">加载中...</div>
+        
+        <!-- 错误提示 -->
+        <div class="alert alert-error" id="errorAlert"></div>
+
+        <!-- 用户信息 -->
+        <div class="profile-card" id="profileCard" style="display: none;">
+            <div class="avatar" id="avatar">U</div>
+            
+            <div class="info-item">
+                <span class="info-label">用户ID</span>
+                <span class="info-value" id="userId">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">用户名</span>
+                <span class="info-value" id="username">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">邮箱</span>
+                <span class="info-value" id="email">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">手机号</span>
+                <span class="info-value" id="phone">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">注册时间</span>
+                <span class="info-value" id="createdAt">-</span>
+            </div>
+
+            <button class="btn btn-danger" style="margin-top: 30px;" onclick="handleLogout()">
+                退出登录
+            </button>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        // 页面加载时获取用户信息
+        document.addEventListener('DOMContentLoaded', loadProfile);
+
+        async function loadProfile() {
+            // 先检查本地是否有登录信息
+            if (!Auth.isLoggedIn()) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            // 从后端获取最新的用户信息
+            const result = await API.getProfile();
+
+            document.getElementById('loading').style.display = 'none';
+
+            if (result.success) {
+                // 更新本地存储
+                Auth.setUser(result.data);
+                // 显示用户信息
+                displayProfile(result.data);
+            } else {
+                // 获取失败（可能是 Session 过期）
+                showError(result.message);
+                Auth.clearUser();
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 2000);
+            }
+        }
+
+        function displayProfile(user) {
+            document.getElementById('profileCard').style.display = 'block';
+            
+            // 头像显示用户名首字母
+            document.getElementById('avatar').textContent = user.username.charAt(0).toUpperCase();
+            
+            document.getElementById('userId').textContent = user.id || user.user_id;
+            document.getElementById('username').textContent = user.username;
+            document.getElementById('email').textContent = user.email || '未设置';
+            document.getElementById('phone').textContent = user.phone || '未设置';
+            document.getElementById('createdAt').textContent = user.created_at || '-';
+        }
+
+        async function handleLogout() {
+            const result = await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function showError(message) {
+            const alert = document.getElementById('errorAlert');
+            alert.textContent = message;
+            alert.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

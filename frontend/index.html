@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shop - 首页</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks">
+            <!-- JS 动态填充 -->
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>欢迎来到 Shop</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            这是一个使用 PHP 原生开发的电商系统演示
+        </p>
+        <div id="welcomeArea">
+            <!-- JS 动态填充 -->
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            updateNavbar();
+            updateWelcome();
+        });
+
+        // 更新导航栏
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            
+            if (Auth.isLoggedIn()) {
+                const user = Auth.getUser();
+                navLinks.innerHTML = `
+                    <a href="profile.html">👤 ${user.username}</a>
+                    <a href="#" onclick="handleLogout()">退出</a>
+                `;
+            } else {
+                navLinks.innerHTML = `
+                    <a href="login.html">登录</a>
+                    <a href="register.html">注册</a>
+                `;
+            }
+        }
+
+        // 更新欢迎区域
+        function updateWelcome() {
+            const welcomeArea = document.getElementById('welcomeArea');
+            
+            if (Auth.isLoggedIn()) {
+                const user = Auth.getUser();
+                welcomeArea.innerHTML = `
+                    <p style="text-align: center; margin-bottom: 20px;">
+                        你好，<strong>${user.username}</strong>！
+                    </p>
+                    <a href="profile.html" class="btn btn-primary">进入个人中心</a>
+                `;
+            } else {
+                welcomeArea.innerHTML = `
+                    <a href="login.html" class="btn btn-primary" style="margin-bottom: 10px;">立即登录</a>
+                    <p class="form-footer">还没有账号？<a href="register.html">立即注册</a></p>
+                `;
+            }
+        }
+
+        // 处理登出
+        async function handleLogout() {
+            const result = await API.logout();
+            Auth.clearUser();
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>
