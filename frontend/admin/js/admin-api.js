@@ -6,12 +6,21 @@ const AdminAPI = {
     userURL: '/php/api/user.php',
     // 管理员模块 API
     adminURL: '/php/api/admin.php',
+    // 商品模块 API
+    productURL: '/php/api/product.php',
 
     /**
      * 发送请求
      */
-    async request(url, action, method = 'GET', data = null) {
-        const fullURL = `${url}?action=${action}`;
+    async request(url, action, method = 'GET', data = null, params = {}) {
+        let fullURL = `${url}?action=${action}`;
+        
+        // 添加URL参数
+        Object.keys(params).forEach(key => {
+            if (params[key] !== '' && params[key] !== null && params[key] !== undefined) {
+                fullURL += `&${key}=${encodeURIComponent(params[key])}`;
+            }
+        });
         
         const options = {
             method: method,
@@ -37,66 +46,119 @@ const AdminAPI = {
 
     // ========== 用户认证相关 ==========
 
-    /**
-     * 管理员登录
-     */
     async login(account, password) {
         return this.request(this.userURL, 'login', 'POST', { account, password });
     },
 
-    /**
-     * 登出
-     */
     async logout() {
         return this.request(this.userURL, 'logout', 'POST');
     },
 
-    /**
-     * 获取当前用户信息
-     */
     async getProfile() {
         return this.request(this.userURL, 'profile', 'GET');
     },
 
-    // ========== 管理员功能 ==========
+    // ========== 用户管理 ==========
 
-    /**
-     * 获取用户统计
-     */
     async getUserCount() {
         return this.request(this.adminURL, 'user_count', 'GET');
     },
 
-    /**
-     * 获取用户列表
-     */
     async getUsers(page = 1, limit = 10) {
-        const url = `${this.adminURL}?action=users&page=${page}&limit=${limit}`;
-        const options = {
-            method: 'GET',
-            credentials: 'include'
-        };
-        
-        try {
-            const response = await fetch(url, options);
-            return await response.json();
-        } catch (error) {
-            return { success: false, message: '网络请求失败' };
-        }
+        return this.request(this.adminURL, 'users', 'GET', null, { page, limit });
     },
 
-    /**
-     * 禁用用户
-     */
     async disableUser(userId) {
         return this.request(this.adminURL, 'disable', 'POST', { user_id: userId });
     },
 
-    /**
-     * 启用用户
-     */
     async enableUser(userId) {
         return this.request(this.adminURL, 'enable', 'POST', { user_id: userId });
+    },
+
+    // ========== 分类管理 ==========
+
+    async getCategoryList(flat = true, showHidden = true) {
+        return this.request(this.productURL, 'category_list', 'GET', null, {
+            flat: flat ? '1' : '0',
+            show_hidden: showHidden ? '1' : '0'
+        });
+    },
+
+    async getCategoryDetail(id) {
+        return this.request(this.productURL, 'category_detail', 'GET', null, { id });
+    },
+
+    async addCategory(data) {
+        return this.request(this.productURL, 'category_add', 'POST', data);
+    },
+
+    async updateCategory(data) {
+        return this.request(this.productURL, 'category_update', 'POST', data);
+    },
+
+    async deleteCategory(id) {
+        return this.request(this.productURL, 'category_delete', 'POST', { id });
+    },
+
+    // ========== 商品管理 ==========
+
+    async getProductList(filters = {}) {
+        return this.request(this.productURL, 'product_list', 'GET', null, filters);
+    },
+
+    async getProductDetail(id) {
+        return this.request(this.productURL, 'product_detail', 'GET', null, { id });
+    },
+
+    async addProduct(data) {
+        return this.request(this.productURL, 'product_add', 'POST', data);
+    },
+
+    async updateProduct(data) {
+        return this.request(this.productURL, 'product_update', 'POST', data);
+    },
+
+    async deleteProduct(id) {
+        return this.request(this.productURL, 'product_delete', 'POST', { id });
+    },
+
+    async toggleProductStatus(id) {
+        return this.request(this.productURL, 'product_toggle_status', 'POST', { id });
+    },
+
+    // ========== 库存管理 ==========
+
+    async getInventory(productId) {
+        return this.request(this.productURL, 'inventory_get', 'GET', null, { product_id: productId });
+    },
+
+    async updateInventory(productId, quantity, type = 'set', reason = '') {
+        return this.request(this.productURL, 'inventory_update', 'POST', {
+            product_id: productId,
+            quantity: quantity,
+            type: type,
+            reason: reason
+        });
+    },
+
+    // ========== 图片上传 ==========
+
+    async uploadImage(file) {
+        const formData = new FormData();
+        formData.append('image', file);
+
+        try {
+            const response = await fetch(`${this.productURL}?action=upload_image`, {
+                method: 'POST',
+                credentials: 'include',
+                body: formData
+            });
+            return await response.json();
+        } catch (error) {
+            console.error('上传失败:', error);
+            return { success: false, message: '上传失败' };
+        }
     }
 };
 

@@ -20,6 +20,8 @@
     <aside class="admin-sidebar">
         <a href="index.html" class="menu-item active">📊 控制台</a>
         <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="products.html" class="menu-item">📦 商品管理</a>
     </aside>
 
     <!-- 主内容 -->
@@ -29,7 +31,8 @@
             <p>欢迎回来，这是系统数据概览</p>
         </div>
 
-        <!-- 统计卡片 -->
+        <!-- 用户统计卡片 -->
+        <h3 style="margin-bottom: 15px; color: #666;">👥 用户统计</h3>
         <div class="stats-grid" id="statsGrid">
             <div class="stat-card primary">
                 <div class="stat-title">用户总数</div>
@@ -49,14 +52,35 @@
             </div>
         </div>
 
+        <!-- 商品统计卡片 -->
+        <h3 style="margin: 25px 0 15px; color: #666;">📦 商品统计</h3>
+        <div class="stats-grid">
+            <div class="stat-card primary">
+                <div class="stat-title">商品总数</div>
+                <div class="stat-value" id="totalProducts">-</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-title">已上架</div>
+                <div class="stat-value" id="onlineProducts">-</div>
+            </div>
+            <div class="stat-card danger">
+                <div class="stat-title">已下架</div>
+                <div class="stat-value" id="offlineProducts">-</div>
+            </div>
+            <div class="stat-card warning">
+                <div class="stat-title">分类数量</div>
+                <div class="stat-value" id="totalCategories">-</div>
+            </div>
+        </div>
+
         <!-- 最近注册用户 -->
-        <div class="card">
+        <div class="card" style="margin-top: 24px;">
             <div class="card-header">
                 <h2>最近注册用户</h2>
                 <a href="users.html" class="btn btn-primary btn-sm">查看全部</a>
             </div>
             <div class="card-body">
-                <div class="loading" id="loading">加载中...</div>
+                <div class="loading" id="loadingUsers">加载中...</div>
                 <table class="table" id="usersTable" style="display: none;">
                     <thead>
                         <tr>
@@ -73,20 +97,46 @@
                 </table>
             </div>
         </div>
+
+        <!-- 最近添加商品 -->
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header">
+                <h2>最近添加商品</h2>
+                <a href="products.html" class="btn btn-primary btn-sm">查看全部</a>
+            </div>
+            <div class="card-body">
+                <div class="loading" id="loadingProducts">加载中...</div>
+                <table class="table" id="productsTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>商品名称</th>
+                            <th>分类</th>
+                            <th>价格</th>
+                            <th>库存</th>
+                            <th>状态</th>
+                            <th>创建时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 
     <script src="js/admin-api.js"></script>
     <script>
         // 检查登录状态
-        if (!AdminAuth.requireLogin()) {
-            // 会自动跳转到登录页
-        }
+        if (!AdminAuth.requireLogin()) {}
 
         // 页面加载
         document.addEventListener('DOMContentLoaded', function() {
             loadAdminInfo();
-            loadStats();
+            loadUserStats();
+            loadProductStats();
             loadRecentUsers();
+            loadRecentProducts();
         });
 
         // 加载管理员信息
@@ -97,8 +147,8 @@
             }
         }
 
-        // 加载统计数据
-        async function loadStats() {
+        // 加载用户统计
+        async function loadUserStats() {
             const result = await AdminAPI.getUserCount();
             
             if (result.success) {
@@ -107,7 +157,6 @@
                 document.getElementById('disabledUsers').textContent = result.data.disabled;
                 document.getElementById('todayUsers').textContent = result.data.today;
             } else {
-                // 可能是未登录或权限不足
                 if (result.message.includes('登录') || result.message.includes('权限')) {
                     AdminAuth.clearUser();
                     window.location.href = 'login.html';
@@ -115,21 +164,43 @@
             }
         }
 
+        // 加载商品统计
+        async function loadProductStats() {
+            // 获取全部商品数量
+            const allResult = await AdminAPI.getProductList({ page: 1, page_size: 1 });
+            // 获取上架商品数量
+            const onlineResult = await AdminAPI.getProductList({ page: 1, page_size: 1, status: 1 });
+            // 获取下架商品数量
+            const offlineResult = await AdminAPI.getProductList({ page: 1, page_size: 1, status: 0 });
+            // 获取分类数量
+            const categoryResult = await AdminAPI.getCategoryList(true, true);
+
+            if (allResult.success) {
+                document.getElementById('totalProducts').textContent = allResult.data.pagination.total;
+            }
+            if (onlineResult.success) {
+                document.getElementById('onlineProducts').textContent = onlineResult.data.pagination.total;
+            }
+            if (offlineResult.success) {
+                document.getElementById('offlineProducts').textContent = offlineResult.data.pagination.total;
+            }
+            if (categoryResult.success) {
+                document.getElementById('totalCategories').textContent = categoryResult.data.length;
+            }
+        }
+
         // 加载最近用户
         async function loadRecentUsers() {
             const result = await AdminAPI.getUsers(1, 5);
             
-            document.getElementById('loading').style.display = 'none';
+            document.getElementById('loadingUsers').style.display = 'none';
             
-            if (result.success) {
+            if (result.success && result.data.users.length > 0) {
                 document.getElementById('usersTable').style.display = 'table';
                 
                 const tbody = document.getElementById('usersBody');
-                tbody.innerHTML = '';
-                
-                result.data.users.forEach(user => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
+                tbody.innerHTML = result.data.users.map(user => `
+                    <tr>
                         <td>${user.id}</td>
                         <td>${user.username}</td>
                         <td>${user.email || '-'}</td>
@@ -140,9 +211,42 @@
                             </span>
                         </td>
                         <td>${user.created_at}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+                    </tr>
+                `).join('');
+            } else {
+                document.getElementById('loadingUsers').textContent = '暂无数据';
+                document.getElementById('loadingUsers').style.display = 'block';
+            }
+        }
+
+        // 加载最近商品
+        async function loadRecentProducts() {
+            const result = await AdminAPI.getProductList({ page: 1, page_size: 5, sort_by: 'created_at', sort_order: 'DESC' });
+            
+            document.getElementById('loadingProducts').style.display = 'none';
+            
+            if (result.success && result.data.list.length > 0) {
+                document.getElementById('productsTable').style.display = 'table';
+                
+                const tbody = document.getElementById('productsBody');
+                tbody.innerHTML = result.data.list.map(p => `
+                    <tr>
+                        <td>${p.id}</td>
+                        <td>${escapeHtml(p.name)}</td>
+                        <td>${p.category_name || '-'}</td>
+                        <td>¥${p.price.toFixed(2)}</td>
+                        <td>${p.available_stock}</td>
+                        <td>
+                            <span class="tag ${p.status === 1 ? 'tag-success' : 'tag-danger'}">
+                                ${p.status === 1 ? '上架' : '下架'}
+                            </span>
+                        </td>
+                        <td>${p.created_at ? p.created_at.substring(0, 10) : '-'}</td>
+                    </tr>
+                `).join('');
+            } else {
+                document.getElementById('loadingProducts').textContent = '暂无数据';
+                document.getElementById('loadingProducts').style.display = 'block';
             }
         }
 
@@ -151,6 +255,14 @@
             await AdminAPI.logout();
             AdminAuth.clearUser();
             window.location.href = 'login.html';
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>

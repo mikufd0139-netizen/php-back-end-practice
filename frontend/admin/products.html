@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="products.html" class="menu-item active">📦 商品管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>商品管理</h1>
+            <p>管理所有商品信息、库存</p>
+        </div>
+
+        <!-- 搜索和操作栏 -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <input type="text" id="searchKeyword" class="form-input" placeholder="搜索商品名称..." />
+                <select id="filterCategory" class="form-select">
+                    <option value="">全部分类</option>
+                </select>
+                <select id="filterStatus" class="form-select">
+                    <option value="">全部状态</option>
+                    <option value="1">已上架</option>
+                    <option value="0">已下架</option>
+                </select>
+                <button class="btn btn-primary" onclick="handleSearch()">搜索</button>
+            </div>
+            <div class="toolbar-right">
+                <button class="btn btn-primary" onclick="showAddModal()">+ 添加商品</button>
+            </div>
+        </div>
+
+        <!-- 商品列表 -->
+        <div class="card">
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <table class="table" id="productTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th width="60">ID</th>
+                            <th width="80">图片</th>
+                            <th>商品名称</th>
+                            <th>分类</th>
+                            <th width="100">价格</th>
+                            <th width="80">库存</th>
+                            <th width="80">状态</th>
+                            <th width="140">创建时间</th>
+                            <th width="200">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productBody">
+                    </tbody>
+                </table>
+                <div class="empty" id="emptyState" style="display: none;">暂无商品数据</div>
+                
+                <!-- 分页 -->
+                <div class="pagination" id="pagination"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 添加/编辑商品弹窗 -->
+    <div class="modal" id="productModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="modalTitle">添加商品</h3>
+                <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="productForm">
+                    <input type="hidden" id="productId" />
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>商品名称 <span class="required">*</span></label>
+                            <input type="text" id="productName" placeholder="请输入商品名称" required />
+                        </div>
+                        <div class="form-group">
+                            <label>所属分类</label>
+                            <select id="productCategory">
+                                <option value="">请选择分类</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>销售价格 <span class="required">*</span></label>
+                            <input type="number" id="productPrice" step="0.01" min="0" placeholder="0.00" required />
+                        </div>
+                        <div class="form-group">
+                            <label>原价（划线价）</label>
+                            <input type="number" id="productOriginalPrice" step="0.01" min="0" placeholder="0.00" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>初始库存</label>
+                            <input type="number" id="productStock" min="0" value="0" placeholder="0" />
+                        </div>
+                        <div class="form-group">
+                            <label>状态</label>
+                            <select id="productStatus">
+                                <option value="1">上架</option>
+                                <option value="0">下架</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>封面图片</label>
+                        <div class="image-upload">
+                            <input type="file" id="coverImageFile" accept="image/*" onchange="handleImageUpload()" />
+                            <input type="hidden" id="coverImageUrl" />
+                            <div class="image-preview" id="imagePreview">
+                                <span>点击或拖拽上传图片</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>商品描述</label>
+                        <textarea id="productDescription" rows="4" placeholder="请输入商品描述"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveProduct()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 库存管理弹窗 -->
+    <div class="modal" id="stockModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>库存管理</h3>
+                <button class="modal-close" onclick="hideStockModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="stock-info">
+                    <p>商品：<strong id="stockProductName">-</strong></p>
+                    <p>当前库存：<strong id="currentStock">-</strong></p>
+                    <p>锁定库存：<strong id="lockedStock">-</strong></p>
+                    <p>可用库存：<strong id="availableStock">-</strong></p>
+                </div>
+                <hr />
+                <form id="stockForm">
+                    <input type="hidden" id="stockProductId" />
+                    <div class="form-group">
+                        <label>操作类型</label>
+                        <select id="stockType">
+                            <option value="set">设置库存</option>
+                            <option value="add">增加库存</option>
+                            <option value="reduce">减少库存</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>数量 <span class="required">*</span></label>
+                        <input type="number" id="stockQuantity" min="0" placeholder="请输入数量" required />
+                    </div>
+                    <div class="form-group">
+                        <label>备注</label>
+                        <input type="text" id="stockReason" placeholder="操作原因（可选）" />
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideStockModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveStock()">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 检查登录
+        if (!AdminAuth.requireLogin()) {}
+
+        // 状态变量
+        let currentPage = 1;
+        const pageSize = 10;
+        let categories = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAdminInfo();
+            loadCategories();
+            loadProducts();
+
+            // 回车搜索
+            document.getElementById('searchKeyword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') handleSearch();
+            });
+        });
+
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            if (user) {
+                document.getElementById('adminName').textContent = user.username;
+            }
+        }
+
+        // 加载分类
+        async function loadCategories() {
+            const result = await AdminAPI.getCategoryList(true, true);
+            if (result.success) {
+                categories = result.data;
+                const filterSelect = document.getElementById('filterCategory');
+                const productSelect = document.getElementById('productCategory');
+                
+                categories.forEach(cat => {
+                    const prefix = cat.parent_id > 0 ? '　├─ ' : '';
+                    filterSelect.innerHTML += `<option value="${cat.id}">${prefix}${escapeHtml(cat.name)}</option>`;
+                    productSelect.innerHTML += `<option value="${cat.id}">${prefix}${escapeHtml(cat.name)}</option>`;
+                });
+            }
+        }
+
+        // 加载商品列表
+        async function loadProducts() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('productTable').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+
+            const filters = {
+                page: currentPage,
+                page_size: pageSize,
+                keyword: document.getElementById('searchKeyword').value,
+                category_id: document.getElementById('filterCategory').value,
+                status: document.getElementById('filterStatus').value
+            };
+
+            const result = await AdminAPI.getProductList(filters);
+            
+            document.getElementById('loading').style.display = 'none';
+
+            if (result.success) {
+                if (result.data.list.length > 0) {
+                    renderProducts(result.data.list);
+                    renderPagination(result.data.pagination);
+                    document.getElementById('productTable').style.display = 'table';
+                } else {
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('pagination').innerHTML = '';
+                }
+            } else {
+                alert('加载失败：' + result.message);
+            }
+        }
+
+        // 渲染商品列表
+        function renderProducts(products) {
+            const tbody = document.getElementById('productBody');
+            tbody.innerHTML = products.map(p => `
+                <tr>
+                    <td>${p.id}</td>
+                    <td>
+                        <div class="product-thumb">
+                            ${p.cover_image 
+                                ? `<img src="${p.cover_image}" alt="" />` 
+                                : '<span class="no-image">无图</span>'
+                            }
+                        </div>
+                    </td>
+                    <td>
+                        <div class="product-name-cell">
+                            <span class="product-name">${escapeHtml(p.name)}</span>
+                        </div>
+                    </td>
+                    <td>${p.category_name || '-'}</td>
+                    <td>
+                        <span class="price">¥${p.price.toFixed(2)}</span>
+                        ${p.original_price ? `<br><span class="original-price">¥${p.original_price.toFixed(2)}</span>` : ''}
+                    </td>
+                    <td>
+                        <span class="${p.available_stock > 0 ? 'text-success' : 'text-danger'}">${p.available_stock}</span>
+                        ${p.locked_stock > 0 ? `<br><small class="text-muted">锁定:${p.locked_stock}</small>` : ''}
+                    </td>
+                    <td>
+                        <span class="tag ${p.status === 1 ? 'tag-success' : 'tag-danger'}">
+                            ${p.status === 1 ? '上架' : '下架'}
+                        </span>
+                    </td>
+                    <td>${formatDate(p.created_at)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="editProduct(${p.id})">编辑</button>
+                        <button class="btn btn-sm btn-success" onclick="manageStock(${p.id})">库存</button>
+                        <button class="btn btn-sm ${p.status === 1 ? 'btn-warning' : 'btn-success'}" onclick="toggleStatus(${p.id})">
+                            ${p.status === 1 ? '下架' : '上架'}
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteProduct(${p.id}, '${escapeHtml(p.name)}')">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // 渲染分页
+        function renderPagination(pagination) {
+            const { page, total_pages, total } = pagination;
+            if (total_pages <= 1) {
+                document.getElementById('pagination').innerHTML = `<span class="page-info">共 ${total} 条</span>`;
+                return;
+            }
+
+            let html = `<span class="page-info">共 ${total} 条</span>`;
+            html += `<button ${page <= 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})">上一页</button>`;
+            html += `<span class="page-info">第 ${page} / ${total_pages} 页</span>`;
+            html += `<button ${page >= total_pages ? 'disabled' : ''} onclick="goToPage(${page + 1})">下一页</button>`;
+            
+            document.getElementById('pagination').innerHTML = html;
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            loadProducts();
+        }
+
+        function handleSearch() {
+            currentPage = 1;
+            loadProducts();
+        }
+
+        // 显示添加弹窗
+        function showAddModal() {
+            document.getElementById('modalTitle').textContent = '添加商品';
+            document.getElementById('productId').value = '';
+            document.getElementById('productForm').reset();
+            document.getElementById('productStock').value = '0';
+            document.getElementById('productStatus').value = '1';
+            document.getElementById('coverImageUrl').value = '';
+            document.getElementById('imagePreview').innerHTML = '<span>点击或拖拽上传图片</span>';
+            document.getElementById('productModal').classList.add('show');
+        }
+
+        // 编辑商品
+        async function editProduct(id) {
+            const result = await AdminAPI.getProductDetail(id);
+            if (!result.success) {
+                alert('获取商品信息失败');
+                return;
+            }
+
+            const p = result.data;
+            document.getElementById('modalTitle').textContent = '编辑商品';
+            document.getElementById('productId').value = p.id;
+            document.getElementById('productName').value = p.name;
+            document.getElementById('productCategory').value = p.category_id || '';
+            document.getElementById('productPrice').value = p.price;
+            document.getElementById('productOriginalPrice').value = p.original_price || '';
+            document.getElementById('productStock').value = p.stock;
+            document.getElementById('productStock').disabled = true; // 编辑时不能直接改库存
+            document.getElementById('productStatus').value = p.status;
+            document.getElementById('productDescription').value = p.description || '';
+            document.getElementById('coverImageUrl').value = p.cover_image || '';
+            
+            if (p.cover_image) {
+                document.getElementById('imagePreview').innerHTML = `<img src="${p.cover_image}" alt="封面" />`;
+            } else {
+                document.getElementById('imagePreview').innerHTML = '<span>点击或拖拽上传图片</span>';
+            }
+
+            document.getElementById('productModal').classList.add('show');
+        }
+
+        // 图片上传
+        async function handleImageUpload() {
+            const fileInput = document.getElementById('coverImageFile');
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            // 显示上传中
+            document.getElementById('imagePreview').innerHTML = '<span>上传中...</span>';
+
+            const result = await AdminAPI.uploadImage(file);
+            if (result.success) {
+                document.getElementById('coverImageUrl').value = result.data.url;
+                document.getElementById('imagePreview').innerHTML = `<img src="${result.data.url}" alt="封面" />`;
+            } else {
+                alert('上传失败：' + result.message);
+                document.getElementById('imagePreview').innerHTML = '<span>点击或拖拽上传图片</span>';
+            }
+        }
+
+        // 隐藏弹窗
+        function hideModal() {
+            document.getElementById('productModal').classList.remove('show');
+            document.getElementById('productStock').disabled = false;
+        }
+
+        // 保存商品
+        async function saveProduct() {
+            const id = document.getElementById('productId').value;
+            const name = document.getElementById('productName').value.trim();
+            const categoryId = document.getElementById('productCategory').value;
+            const price = document.getElementById('productPrice').value;
+            const originalPrice = document.getElementById('productOriginalPrice').value;
+            const stock = document.getElementById('productStock').value;
+            const status = document.getElementById('productStatus').value;
+            const description = document.getElementById('productDescription').value.trim();
+            const coverImage = document.getElementById('coverImageUrl').value;
+
+            if (!name) {
+                alert('请输入商品名称');
+                return;
+            }
+            if (!price || price <= 0) {
+                alert('请输入有效的商品价格');
+                return;
+            }
+
+            const data = {
+                name: name,
+                price: parseFloat(price),
+                status: parseInt(status),
+                description: description,
+                cover_image: coverImage
+            };
+
+            if (categoryId) data.category_id = parseInt(categoryId);
+            if (originalPrice) data.original_price = parseFloat(originalPrice);
+
+            let result;
+            if (id) {
+                data.id = parseInt(id);
+                result = await AdminAPI.updateProduct(data);
+            } else {
+                data.stock = parseInt(stock) || 0;
+                result = await AdminAPI.addProduct(data);
+            }
+
+            if (result.success) {
+                alert(id ? '修改成功' : '添加成功');
+                hideModal();
+                loadProducts();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 切换状态
+        async function toggleStatus(id) {
+            const result = await AdminAPI.toggleProductStatus(id);
+            if (result.success) {
+                loadProducts();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除商品
+        async function deleteProduct(id, name) {
+            if (!confirm(`确定要删除商品「${name}」吗？`)) {
+                return;
+            }
+
+            const result = await AdminAPI.deleteProduct(id);
+            if (result.success) {
+                alert('删除成功');
+                loadProducts();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 库存管理
+        async function manageStock(productId) {
+            const result = await AdminAPI.getInventory(productId);
+            if (!result.success) {
+                alert('获取库存信息失败');
+                return;
+            }
+
+            const inv = result.data;
+            document.getElementById('stockProductId').value = productId;
+            document.getElementById('stockProductName').textContent = inv.name;
+            document.getElementById('currentStock').textContent = inv.stock;
+            document.getElementById('lockedStock').textContent = inv.locked_stock;
+            document.getElementById('availableStock').textContent = inv.available_stock;
+            document.getElementById('stockForm').reset();
+            document.getElementById('stockModal').classList.add('show');
+        }
+
+        function hideStockModal() {
+            document.getElementById('stockModal').classList.remove('show');
+        }
+
+        async function saveStock() {
+            const productId = document.getElementById('stockProductId').value;
+            const type = document.getElementById('stockType').value;
+            const quantity = document.getElementById('stockQuantity').value;
+            const reason = document.getElementById('stockReason').value;
+
+            if (!quantity || quantity < 0) {
+                alert('请输入有效的数量');
+                return;
+            }
+
+            const result = await AdminAPI.updateInventory(
+                parseInt(productId),
+                parseInt(quantity),
+                type,
+                reason
+            );
+
+            if (result.success) {
+                alert('库存更新成功');
+                hideStockModal();
+                loadProducts();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        // 格式化日期
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return dateStr.substring(0, 10);
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

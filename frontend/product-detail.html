@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品详情 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/product.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks">
+            <!-- JS 动态填充 -->
+        </div>
+    </nav>
+
+    <div class="page-container">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt;
+            <a href="products.html">商品列表</a> &gt;
+            <span id="breadcrumbName">商品详情</span>
+        </div>
+
+        <div class="product-detail" id="productDetail">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/product-api.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            updateNavbar();
+            loadProductDetail();
+        });
+
+        // 更新导航栏
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            let html = '<a href="products.html">商品</a>';
+            
+            if (Auth.isLoggedIn()) {
+                const user = Auth.getUser();
+                html += `
+                    <a href="profile.html">👤 ${user.username}</a>
+                    <a href="#" onclick="handleLogout()">退出</a>
+                `;
+            } else {
+                html += `
+                    <a href="login.html">登录</a>
+                    <a href="register.html">注册</a>
+                `;
+            }
+            navLinks.innerHTML = html;
+        }
+
+        // 获取 URL 参数
+        function getUrlParam(name) {
+            const params = new URLSearchParams(window.location.search);
+            return params.get(name);
+        }
+
+        // 加载商品详情
+        async function loadProductDetail() {
+            const productId = getUrlParam('id');
+            if (!productId) {
+                document.getElementById('productDetail').innerHTML = 
+                    '<div class="error-state">商品ID无效</div>';
+                return;
+            }
+
+            const result = await ProductAPI.getProductDetail(productId);
+
+            if (result.success) {
+                renderProductDetail(result.data);
+            } else {
+                document.getElementById('productDetail').innerHTML = 
+                    `<div class="error-state">${result.message}</div>`;
+            }
+        }
+
+        // 渲染商品详情
+        function renderProductDetail(product) {
+            document.title = `${product.name} - Shop`;
+            document.getElementById('breadcrumbName').textContent = product.name;
+
+            const detailEl = document.getElementById('productDetail');
+            
+            // 计算折扣
+            let discountHtml = '';
+            if (product.original_price && product.original_price > product.price) {
+                const discount = Math.round((1 - product.price / product.original_price) * 100);
+                discountHtml = `<span class="discount-tag">省 ${discount}%</span>`;
+            }
+
+            // 库存状态
+            const stockStatus = product.available_stock > 0 
+                ? `<span class="stock-available">有货 (${product.available_stock}件)</span>`
+                : '<span class="stock-out">暂时缺货</span>';
+
+            detailEl.innerHTML = `
+                <div class="detail-main">
+                    <div class="detail-image">
+                        ${product.cover_image 
+                            ? `<img src="${product.cover_image}" alt="${escapeHtml(product.name)}" />`
+                            : '<div class="no-image-large">暂无图片</div>'
+                        }
+                    </div>
+                    <div class="detail-info">
+                        <h1 class="detail-name">${escapeHtml(product.name)}</h1>
+                        <p class="detail-category">分类：${product.category_name || '未分类'}</p>
+                        
+                        <div class="detail-price-section">
+                            <div class="detail-price">
+                                <span class="price-label">价格</span>
+                                <span class="price-current">¥${product.price.toFixed(2)}</span>
+                                ${product.original_price 
+                                    ? `<span class="price-original">¥${product.original_price.toFixed(2)}</span>` 
+                                    : ''
+                                }
+                                ${discountHtml}
+                            </div>
+                        </div>
+
+                        <div class="detail-stock">
+                            <span class="stock-label">库存状态</span>
+                            ${stockStatus}
+                        </div>
+
+                        <div class="detail-actions">
+                            <div class="quantity-selector">
+                                <button class="qty-btn" onclick="changeQty(-1)">-</button>
+                                <input type="number" id="quantity" value="1" min="1" max="${product.available_stock}" />
+                                <button class="qty-btn" onclick="changeQty(1)">+</button>
+                            </div>
+                            <button class="btn btn-primary btn-add-cart" 
+                                    onclick="addToCart(${product.id})"
+                                    ${product.available_stock <= 0 ? 'disabled' : ''}>
+                                ${product.available_stock > 0 ? '加入购物车' : '暂时缺货'}
+                            </button>
+                        </div>
+
+                        <div class="detail-meta">
+                            <p>商品ID：${product.id}</p>
+                            <p>上架时间：${formatDate(product.created_at)}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="detail-description">
+                    <h2>商品详情</h2>
+                    <div class="description-content">
+                        ${product.description 
+                            ? escapeHtml(product.description).replace(/\n/g, '<br>')
+                            : '<p class="no-description">暂无商品详情</p>'
+                        }
+                    </div>
+                </div>
+            `;
+        }
+
+        // 数量调整
+        function changeQty(delta) {
+            const input = document.getElementById('quantity');
+            const max = parseInt(input.max) || 999;
+            let value = parseInt(input.value) || 1;
+            value += delta;
+            if (value < 1) value = 1;
+            if (value > max) value = max;
+            input.value = value;
+        }
+
+        // 加入购物车（需要后续实现购物车功能）
+        function addToCart(productId) {
+            if (!Auth.isLoggedIn()) {
+                if (confirm('请先登录后再添加购物车，是否前往登录？')) {
+                    window.location.href = 'login.html';
+                }
+                return;
+            }
+            
+            const quantity = parseInt(document.getElementById('quantity').value) || 1;
+            alert(`商品已加入购物车！\n商品ID: ${productId}\n数量: ${quantity}\n\n(购物车功能待实现)`);
+        }
+
+        // 格式化日期
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('zh-CN');
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.reload();
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

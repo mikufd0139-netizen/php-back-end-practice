@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分类管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item active">🏷️ 分类管理</a>
+        <a href="products.html" class="menu-item">📦 商品管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>分类管理</h1>
+            <p>管理商品分类，支持多级分类</p>
+        </div>
+
+        <!-- 操作栏 -->
+        <div class="toolbar">
+            <button class="btn btn-primary" onclick="showAddModal()">+ 添加分类</button>
+        </div>
+
+        <!-- 分类列表 -->
+        <div class="card">
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <table class="table" id="categoryTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th width="80">ID</th>
+                            <th>分类名称</th>
+                            <th>父分类</th>
+                            <th width="80">排序</th>
+                            <th width="80">状态</th>
+                            <th width="160">创建时间</th>
+                            <th width="150">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="categoryBody">
+                    </tbody>
+                </table>
+                <div class="empty" id="emptyState" style="display: none;">暂无分类数据</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 添加/编辑弹窗 -->
+    <div class="modal" id="categoryModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">添加分类</h3>
+                <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="categoryForm">
+                    <input type="hidden" id="categoryId" />
+                    <div class="form-group">
+                        <label>分类名称 <span class="required">*</span></label>
+                        <input type="text" id="categoryName" placeholder="请输入分类名称" required />
+                    </div>
+                    <div class="form-group">
+                        <label>父分类</label>
+                        <select id="parentCategory">
+                            <option value="0">顶级分类</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>排序</label>
+                        <input type="number" id="sortOrder" value="0" placeholder="数字越小越靠前" />
+                    </div>
+                    <div class="form-group">
+                        <label>状态</label>
+                        <select id="categoryStatus">
+                            <option value="1">显示</option>
+                            <option value="0">隐藏</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveCategory()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 检查登录
+        if (!AdminAuth.requireLogin()) {
+            console.log('未登录，跳转到登录页');
+        }
+
+        // 分类数据缓存
+        let categories = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('页面加载完成，开始加载数据...');
+            loadAdminInfo();
+            loadCategories();
+        });
+
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            console.log('当前用户:', user);
+            if (user) {
+                document.getElementById('adminName').textContent = user.username;
+            }
+        }
+
+        // 加载分类列表
+        async function loadCategories() {
+            console.log('开始请求分类列表...');
+            const result = await AdminAPI.getCategoryList(true, true);
+            console.log('分类列表返回:', result);
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            if (result.success) {
+                categories = result.data;
+                if (categories.length > 0) {
+                    renderCategories();
+                    document.getElementById('categoryTable').style.display = 'table';
+                } else {
+                    document.getElementById('emptyState').style.display = 'block';
+                }
+            } else {
+                alert('加载失败：' + result.message);
+            }
+        }
+
+        // 渲染分类列表
+        function renderCategories() {
+            const tbody = document.getElementById('categoryBody');
+            
+            // 构建父分类映射
+            const parentMap = {};
+            categories.forEach(cat => {
+                parentMap[cat.id] = cat.name;
+            });
+
+            tbody.innerHTML = categories.map(cat => {
+                const parentName = cat.parent_id > 0 ? parentMap[cat.parent_id] : '-';
+                const indent = cat.parent_id > 0 ? '　├─ ' : '';
+                return `
+                    <tr>
+                        <td>${cat.id}</td>
+                        <td>${indent}${escapeHtml(cat.name)}</td>
+                        <td>${parentName}</td>
+                        <td>${cat.sort_order}</td>
+                        <td>
+                            <span class="tag ${cat.status === 1 ? 'tag-success' : 'tag-danger'}">
+                                ${cat.status === 1 ? '显示' : '隐藏'}
+                            </span>
+                        </td>
+                        <td>${cat.created_at || '-'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="editCategory(${cat.id})">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCategory(${cat.id}, '${escapeHtml(cat.name)}')">删除</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 显示添加弹窗
+        function showAddModal() {
+            document.getElementById('modalTitle').textContent = '添加分类';
+            document.getElementById('categoryId').value = '';
+            document.getElementById('categoryForm').reset();
+            document.getElementById('sortOrder').value = '0';
+            document.getElementById('categoryStatus').value = '1';
+            updateParentSelect();
+            document.getElementById('categoryModal').classList.add('show');
+        }
+
+        // 编辑分类
+        async function editCategory(id) {
+            const result = await AdminAPI.getCategoryDetail(id);
+            if (!result.success) {
+                alert('获取分类信息失败');
+                return;
+            }
+
+            const cat = result.data;
+            document.getElementById('modalTitle').textContent = '编辑分类';
+            document.getElementById('categoryId').value = cat.id;
+            document.getElementById('categoryName').value = cat.name;
+            document.getElementById('sortOrder').value = cat.sort_order;
+            document.getElementById('categoryStatus').value = cat.status;
+            
+            updateParentSelect(cat.id);
+            document.getElementById('parentCategory').value = cat.parent_id;
+            
+            document.getElementById('categoryModal').classList.add('show');
+        }
+
+        // 更新父分类选择框
+        function updateParentSelect(excludeId = null) {
+            const select = document.getElementById('parentCategory');
+            select.innerHTML = '<option value="0">顶级分类</option>';
+            
+            // 只显示顶级分类作为可选父分类
+            categories.filter(cat => cat.parent_id === 0 && cat.id !== excludeId).forEach(cat => {
+                select.innerHTML += `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`;
+            });
+        }
+
+        // 隐藏弹窗
+        function hideModal() {
+            document.getElementById('categoryModal').classList.remove('show');
+        }
+
+        // 保存分类
+        async function saveCategory() {
+            const id = document.getElementById('categoryId').value;
+            const name = document.getElementById('categoryName').value.trim();
+            const parentId = document.getElementById('parentCategory').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+            const status = document.getElementById('categoryStatus').value;
+
+            if (!name) {
+                alert('请输入分类名称');
+                return;
+            }
+
+            const data = {
+                name: name,
+                parent_id: parseInt(parentId),
+                sort_order: parseInt(sortOrder),
+                status: parseInt(status)
+            };
+
+            let result;
+            if (id) {
+                data.id = parseInt(id);
+                result = await AdminAPI.updateCategory(data);
+            } else {
+                result = await AdminAPI.addCategory(data);
+            }
+
+            if (result.success) {
+                alert(id ? '修改成功' : '添加成功');
+                hideModal();
+                loadCategories();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除分类
+        async function deleteCategory(id, name) {
+            if (!confirm(`确定要删除分类「${name}」吗？`)) {
+                return;
+            }
+
+            const result = await AdminAPI.deleteCategory(id);
+            if (result.success) {
+                alert('删除成功');
+                loadCategories();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

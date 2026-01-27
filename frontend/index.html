@@ -5,6 +5,148 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shop - 首页</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/product.css">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 60px 20px;
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .hero-section h1 {
+            font-size: 36px;
+            margin-bottom: 15px;
+        }
+        .hero-section p {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-bottom: 30px;
+        }
+        .hero-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .hero-buttons .btn {
+            width: auto;
+            padding: 14px 35px;
+            font-size: 16px;
+        }
+        .btn-outline {
+            background: transparent;
+            border: 2px solid #fff;
+            color: #fff;
+        }
+        .btn-outline:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        .btn-white {
+            background: #fff;
+            color: #667eea;
+        }
+        .btn-white:hover {
+            background: #f0f0f0;
+        }
+        .section-title {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section-title h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .section-title p {
+            color: #666;
+        }
+        .home-section {
+            margin-bottom: 50px;
+        }
+        .view-all {
+            text-align: center;
+            margin-top: 30px;
+        }
+        .view-all a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 15px;
+        }
+        .view-all a:hover {
+            text-decoration: underline;
+        }
+        .category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .category-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+            color: #333;
+        }
+        .category-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.12);
+        }
+        .category-icon {
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .category-name {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .user-welcome {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .user-welcome .avatar {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin: 0 auto 15px;
+        }
+        .user-welcome h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .user-welcome p {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .quick-links {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+        }
+        .quick-links a {
+            color: #007bff;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .quick-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar">
@@ -14,68 +156,177 @@
         </div>
     </nav>
 
-    <div class="container">
+    <!-- 英雄区域 -->
+    <div class="hero-section" id="heroSection">
         <h1>欢迎来到 Shop</h1>
-        <p style="text-align: center; color: #666; margin-bottom: 30px;">
-            这是一个使用 PHP 原生开发的电商系统演示
-        </p>
-        <div id="welcomeArea">
+        <p>这是一个使用 PHP 原生开发的电商系统演示</p>
+        <div class="hero-buttons" id="heroButtons">
             <!-- JS 动态填充 -->
+        </div>
+    </div>
+
+    <div class="page-container">
+        <!-- 用户欢迎区（已登录时显示） -->
+        <div id="userWelcome" style="display: none;"></div>
+
+        <!-- 分类区域 -->
+        <div class="home-section">
+            <div class="section-title">
+                <h2>🏷️ 商品分类</h2>
+                <p>浏览各类商品</p>
+            </div>
+            <div class="category-grid" id="categoryGrid">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+
+        <!-- 最新商品 -->
+        <div class="home-section">
+            <div class="section-title">
+                <h2>🆕 最新上架</h2>
+                <p>发现新鲜好物</p>
+            </div>
+            <div class="product-grid" id="newProducts">
+                <div class="loading">加载中...</div>
+            </div>
+            <div class="view-all">
+                <a href="products.html">查看全部商品 →</a>
+            </div>
         </div>
     </div>
 
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
+    <script src="js/product-api.js"></script>
     <script>
-        // 页面加载完成后执行
+        // 分类图标映射
+        const categoryIcons = ['📱', '💻', '👕', '👟', '🏠', '🍎', '📚', '🎮', '💄', '🎒'];
+
         document.addEventListener('DOMContentLoaded', function() {
             updateNavbar();
-            updateWelcome();
+            updateHeroSection();
+            loadCategories();
+            loadNewProducts();
         });
 
         // 更新导航栏
         function updateNavbar() {
             const navLinks = document.getElementById('navLinks');
+            let html = '<a href="products.html">商品</a>';
             
             if (Auth.isLoggedIn()) {
                 const user = Auth.getUser();
-                navLinks.innerHTML = `
+                html += `
                     <a href="profile.html">👤 ${user.username}</a>
                     <a href="#" onclick="handleLogout()">退出</a>
                 `;
             } else {
-                navLinks.innerHTML = `
+                html += `
                     <a href="login.html">登录</a>
                     <a href="register.html">注册</a>
                 `;
             }
+            navLinks.innerHTML = html;
         }
 
-        // 更新欢迎区域
-        function updateWelcome() {
-            const welcomeArea = document.getElementById('welcomeArea');
+        // 更新英雄区域
+        function updateHeroSection() {
+            const heroButtons = document.getElementById('heroButtons');
+            const userWelcome = document.getElementById('userWelcome');
             
             if (Auth.isLoggedIn()) {
                 const user = Auth.getUser();
-                welcomeArea.innerHTML = `
-                    <p style="text-align: center; margin-bottom: 20px;">
-                        你好，<strong>${user.username}</strong>！
-                    </p>
-                    <a href="profile.html" class="btn btn-primary">进入个人中心</a>
+                heroButtons.innerHTML = `
+                    <a href="products.html" class="btn btn-white">开始购物</a>
+                    <a href="profile.html" class="btn btn-outline">个人中心</a>
+                `;
+                
+                // 显示用户欢迎卡片
+                userWelcome.style.display = 'block';
+                userWelcome.innerHTML = `
+                    <div class="user-welcome">
+                        <div class="avatar">${user.username.charAt(0).toUpperCase()}</div>
+                        <h3>你好，${user.username}！</h3>
+                        <p>欢迎回来，祝你购物愉快</p>
+                        <div class="quick-links">
+                            <a href="profile.html">个人资料</a>
+                            <a href="products.html">浏览商品</a>
+                        </div>
+                    </div>
                 `;
             } else {
-                welcomeArea.innerHTML = `
-                    <a href="login.html" class="btn btn-primary" style="margin-bottom: 10px;">立即登录</a>
-                    <p class="form-footer">还没有账号？<a href="register.html">立即注册</a></p>
+                heroButtons.innerHTML = `
+                    <a href="products.html" class="btn btn-white">浏览商品</a>
+                    <a href="login.html" class="btn btn-outline">立即登录</a>
                 `;
             }
         }
 
-        // 处理登出
+        // 加载分类
+        async function loadCategories() {
+            const grid = document.getElementById('categoryGrid');
+            const result = await ProductAPI.getCategoryList();
+            
+            if (result.success && result.data.length > 0) {
+                grid.innerHTML = result.data.slice(0, 8).map((cat, index) => `
+                    <a href="products.html?category=${cat.id}" class="category-card">
+                        <div class="category-icon">${categoryIcons[index % categoryIcons.length]}</div>
+                        <div class="category-name">${escapeHtml(cat.name)}</div>
+                    </a>
+                `).join('');
+            } else {
+                grid.innerHTML = '<p style="text-align:center;color:#999;grid-column:1/-1;">暂无分类</p>';
+            }
+        }
+
+        // 加载最新商品
+        async function loadNewProducts() {
+            const grid = document.getElementById('newProducts');
+            const result = await ProductAPI.getProductList({
+                page: 1,
+                page_size: 8,
+                status: 1,
+                sort_by: 'created_at',
+                sort_order: 'DESC'
+            });
+            
+            if (result.success && result.data.list.length > 0) {
+                grid.innerHTML = result.data.list.map(product => `
+                    <div class="product-card" onclick="location.href='product-detail.html?id=${product.id}'">
+                        <div class="product-image">
+                            ${product.cover_image 
+                                ? `<img src="${product.cover_image}" alt="${escapeHtml(product.name)}" />`
+                                : '<div class="no-image">暂无图片</div>'
+                            }
+                            ${product.available_stock <= 0 ? '<span class="out-of-stock">已售罄</span>' : ''}
+                        </div>
+                        <div class="product-info">
+                            <h3 class="product-name">${escapeHtml(product.name)}</h3>
+                            <p class="product-category">${product.category_name || '未分类'}</p>
+                            <div class="product-price">
+                                <span class="current-price">¥${product.price.toFixed(2)}</span>
+                                ${product.original_price ? `<span class="original-price">¥${product.original_price.toFixed(2)}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                grid.innerHTML = '<p style="text-align:center;color:#999;grid-column:1/-1;">暂无商品</p>';
+            }
+        }
+
+        // 退出登录
         async function handleLogout() {
-            const result = await API.logout();
+            await API.logout();
             Auth.clearUser();
             window.location.reload();
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     </script>
 </body>

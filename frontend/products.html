@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品列表 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/product.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks">
+            <!-- JS 动态填充 -->
+        </div>
+    </nav>
+
+    <div class="page-container">
+        <!-- 搜索和筛选区域 -->
+        <div class="filter-section">
+            <div class="search-box">
+                <input type="text" id="searchKeyword" placeholder="搜索商品名称..." />
+                <button class="btn btn-primary btn-search" onclick="handleSearch()">搜索</button>
+            </div>
+            <div class="filter-row">
+                <div class="filter-item">
+                    <label>分类：</label>
+                    <select id="filterCategory">
+                        <option value="">全部分类</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>价格：</label>
+                    <input type="number" id="minPrice" placeholder="最低" class="price-input" />
+                    <span>-</span>
+                    <input type="number" id="maxPrice" placeholder="最高" class="price-input" />
+                </div>
+                <div class="filter-item">
+                    <label>库存：</label>
+                    <select id="filterStock">
+                        <option value="">全部</option>
+                        <option value="1">有货</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>排序：</label>
+                    <select id="sortBy">
+                        <option value="id">默认</option>
+                        <option value="price">价格</option>
+                        <option value="created_at">上架时间</option>
+                    </select>
+                    <select id="sortOrder">
+                        <option value="DESC">降序</option>
+                        <option value="ASC">升序</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- 商品列表 -->
+        <div class="product-grid" id="productGrid">
+            <div class="loading">加载中...</div>
+        </div>
+
+        <!-- 分页 -->
+        <div class="pagination" id="pagination"></div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/product-api.js"></script>
+    <script>
+        // 当前页码
+        let currentPage = 1;
+        const pageSize = 12;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            updateNavbar();
+            loadCategories();
+            loadProducts();
+
+            // 回车搜索
+            document.getElementById('searchKeyword').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') handleSearch();
+            });
+
+            // 筛选条件改变时自动搜索
+            ['filterCategory', 'filterStock', 'sortBy', 'sortOrder'].forEach(id => {
+                document.getElementById(id).addEventListener('change', () => {
+                    currentPage = 1;
+                    loadProducts();
+                });
+            });
+        });
+
+        // 更新导航栏
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            let html = '<a href="products.html" class="active">商品</a>';
+            
+            if (Auth.isLoggedIn()) {
+                const user = Auth.getUser();
+                html += `
+                    <a href="profile.html">👤 ${user.username}</a>
+                    <a href="#" onclick="handleLogout()">退出</a>
+                `;
+            } else {
+                html += `
+                    <a href="login.html">登录</a>
+                    <a href="register.html">注册</a>
+                `;
+            }
+            navLinks.innerHTML = html;
+        }
+
+        // 加载分类列表
+        async function loadCategories() {
+            const result = await ProductAPI.getCategoryList(true); // 扁平结构
+            if (result.success) {
+                const select = document.getElementById('filterCategory');
+                result.data.forEach(cat => {
+                    const prefix = cat.parent_id > 0 ? '　├─ ' : '';
+                    select.innerHTML += `<option value="${cat.id}">${prefix}${cat.name}</option>`;
+                });
+            }
+        }
+
+        // 加载商品列表
+        async function loadProducts() {
+            const grid = document.getElementById('productGrid');
+            grid.innerHTML = '<div class="loading">加载中...</div>';
+
+            const filters = {
+                page: currentPage,
+                page_size: pageSize,
+                keyword: document.getElementById('searchKeyword').value,
+                category_id: document.getElementById('filterCategory').value,
+                min_price: document.getElementById('minPrice').value,
+                max_price: document.getElementById('maxPrice').value,
+                has_stock: document.getElementById('filterStock').value,
+                sort_by: document.getElementById('sortBy').value,
+                sort_order: document.getElementById('sortOrder').value,
+                status: 1 // 只显示上架商品
+            };
+
+            const result = await ProductAPI.getProductList(filters);
+
+            if (result.success) {
+                renderProducts(result.data.list);
+                renderPagination(result.data.pagination);
+            } else {
+                grid.innerHTML = `<div class="empty-state">加载失败：${result.message}</div>`;
+            }
+        }
+
+        // 渲染商品列表
+        function renderProducts(products) {
+            const grid = document.getElementById('productGrid');
+            
+            if (products.length === 0) {
+                grid.innerHTML = '<div class="empty-state">暂无商品</div>';
+                return;
+            }
+
+            grid.innerHTML = products.map(product => `
+                <div class="product-card" onclick="viewProduct(${product.id})">
+                    <div class="product-image">
+                        ${product.cover_image 
+                            ? `<img src="${product.cover_image}" alt="${product.name}" />`
+                            : '<div class="no-image">暂无图片</div>'
+                        }
+                        ${product.available_stock <= 0 ? '<span class="out-of-stock">已售罄</span>' : ''}
+                    </div>
+                    <div class="product-info">
+                        <h3 class="product-name">${escapeHtml(product.name)}</h3>
+                        <p class="product-category">${product.category_name || '未分类'}</p>
+                        <div class="product-price">
+                            <span class="current-price">¥${product.price.toFixed(2)}</span>
+                            ${product.original_price ? `<span class="original-price">¥${product.original_price.toFixed(2)}</span>` : ''}
+                        </div>
+                        <p class="product-stock">库存: ${product.available_stock}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 渲染分页
+        function renderPagination(pagination) {
+            const paginationEl = document.getElementById('pagination');
+            const { page, total_pages, total } = pagination;
+
+            if (total_pages <= 1) {
+                paginationEl.innerHTML = `<span class="page-info">共 ${total} 件商品</span>`;
+                return;
+            }
+
+            let html = `<span class="page-info">共 ${total} 件商品</span>`;
+            
+            // 上一页
+            if (page > 1) {
+                html += `<button class="page-btn" onclick="goToPage(${page - 1})">上一页</button>`;
+            }
+
+            // 页码
+            const startPage = Math.max(1, page - 2);
+            const endPage = Math.min(total_pages, page + 2);
+
+            if (startPage > 1) {
+                html += `<button class="page-btn" onclick="goToPage(1)">1</button>`;
+                if (startPage > 2) html += '<span class="page-ellipsis">...</span>';
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            }
+
+            if (endPage < total_pages) {
+                if (endPage < total_pages - 1) html += '<span class="page-ellipsis">...</span>';
+                html += `<button class="page-btn" onclick="goToPage(${total_pages})">${total_pages}</button>`;
+            }
+
+            // 下一页
+            if (page < total_pages) {
+                html += `<button class="page-btn" onclick="goToPage(${page + 1})">下一页</button>`;
+            }
+
+            paginationEl.innerHTML = html;
+        }
+
+        // 跳转页码
+        function goToPage(page) {
+            currentPage = page;
+            loadProducts();
+            window.scrollTo(0, 0);
+        }
+
+        // 搜索
+        function handleSearch() {
+            currentPage = 1;
+            loadProducts();
+        }
+
+        // 查看商品详情
+        function viewProduct(id) {
+            window.location.href = `product-detail.html?id=${id}`;
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.reload();
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
