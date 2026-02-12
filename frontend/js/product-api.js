@@ -41,11 +41,6 @@ const ProductAPI = {
 
     // ========== 分类接口 ==========
 
-    /**
-     * 获取分类列表
-     * @param {boolean} flat - 是否扁平结构
-     * @param {boolean} showHidden - 是否显示隐藏分类
-     */
     async getCategoryList(flat = false, showHidden = false) {
         return this.request('category_list', 'GET', null, {
             flat: flat ? '1' : '0',
@@ -53,36 +48,51 @@ const ProductAPI = {
         });
     },
 
-    /**
-     * 获取分类详情
-     */
     async getCategoryDetail(id) {
         return this.request('category_detail', 'GET', null, { id });
     },
 
+    // ========== 品牌接口 ==========
+
+    async getBrandList(showHidden = false) {
+        return this.request('brand_list', 'GET', null, {
+            show_hidden: showHidden ? '1' : '0'
+        });
+    },
+
+    async getBrandDetail(id) {
+        return this.request('brand_detail', 'GET', null, { id });
+    },
+
     // ========== 商品接口 ==========
 
-    /**
-     * 获取商品列表
-     * @param {object} filters - 筛选参数
-     */
     async getProductList(filters = {}) {
         return this.request('product_list', 'GET', null, filters);
     },
 
-    /**
-     * 获取商品详情
-     */
     async getProductDetail(id) {
         return this.request('product_detail', 'GET', null, { id });
     },
 
+    // ========== 商品图片接口 ==========
+
+    async getProductImages(productId) {
+        return this.request('product_image_list', 'GET', null, { product_id: productId });
+    },
+
     // ========== 库存接口 ==========
 
-    /**
-     * 获取库存信息
-     */
     async getInventory(productId) {
         return this.request('inventory_get', 'GET', null, { product_id: productId });
+    },
+
+    // ========== 评价接口 ==========
+
+    async getReviewList(productId, page = 1, pageSize = 10) {
+        return this.request('review_list', 'GET', null, { product_id: productId, page, page_size: pageSize });
+    },
+
+    async addReview(data) {
+        return this.request('review_add', 'POST', data);
     }
 };

@@ -47,6 +47,8 @@
                 html += `
                     <a href="cart.html">🛒 购物车</a>
                     <a href="orders.html">📦 订单</a>
+                    <a href="favorites.html">❤️ 收藏</a>
+                    <a href="footprints.html">👣 足迹</a>
                     <a href="profile.html">👤 ${user.username}</a>
                     <a href="#" onclick="handleLogout()">退出</a>
                 `;
@@ -85,7 +87,12 @@
         }
 
         // 渲染商品详情
+        // 当前商品数据
+        let currentProduct = null;
+        let currentImageIndex = 0;
+
         function renderProductDetail(product) {
+            currentProduct = product;
             document.title = `${product.name} - Shop`;
             document.getElementById('breadcrumbName').textContent = product.name;
 
@@ -103,13 +110,33 @@
                 ? `<span class="stock-available">有货 (${product.available_stock}件)</span>`
                 : '<span class="stock-out">暂时缺货</span>';
 
+            // 构建图片列表（封面 + 商品图册）
+            const allImages = [];
+            if (product.cover_image) allImages.push(product.cover_image);
+            if (product.images && product.images.length > 0) {
+                product.images.forEach(img => {
+                    if (img.image_url && !allImages.includes(img.image_url)) {
+                        allImages.push(img.image_url);
+                    }
+                });
+            }
+
+            const imageGalleryHtml = allImages.length > 0 ? `
+                <div class="detail-image-main">
+                    <img id="mainImage" src="${allImages[0]}" alt="${escapeHtml(product.name)}" />
+                </div>
+                ${allImages.length > 1 ? `
+                <div class="detail-image-thumbs">
+                    ${allImages.map((img, i) => `
+                        <img src="${img}" class="thumb-img ${i === 0 ? 'active' : ''}" onclick="switchImage(${i}, '${img}')" />
+                    `).join('')}
+                </div>` : ''}
+            ` : '<div class="no-image-large">暂无图片</div>';
+
             detailEl.innerHTML = `
                 <div class="detail-main">
                     <div class="detail-image">
-                        ${product.cover_image 
-                            ? `<img src="${product.cover_image}" alt="${escapeHtml(product.name)}" />`
-                            : '<div class="no-image-large">暂无图片</div>'
-                        }
+                        ${imageGalleryHtml}
                     </div>
                     <div class="detail-info">
                         <h1 class="detail-name">
@@ -119,7 +146,10 @@
                             ${escapeHtml(product.name)}
                         </h1>
                         ${product.subtitle ? `<p class="detail-subtitle">${escapeHtml(product.subtitle)}</p>` : ''}
-                        <p class="detail-category">分类：${product.category_name || '未分类'}</p>
+                        <p class="detail-category">
+                            分类：${product.category_name || '未分类'}
+                            ${product.brand_name ? ` | 品牌：<strong>${escapeHtml(product.brand_name)}</strong>` : ''}
+                        </p>
                         
                         <div class="detail-price-section">
                             <div class="detail-price">
@@ -134,7 +164,7 @@
                         </div>
 
                         <div class="detail-stats">
-                            <span>⭐ ${product.rating || '5.0'}分</span>
+                            <span>⭐ ${product.avg_rating || product.rating || '5.0'}分 (${product.total_reviews || 0}条评价)</span>
                             <span>📦 已售 ${product.sales_count || 0}</span>
                             <span>👀 ${product.view_count || 0}次浏览</span>
                         </div>
@@ -155,6 +185,11 @@
                                     ${product.available_stock <= 0 ? 'disabled' : ''}>
                                 ${product.available_stock > 0 ? '加入购物车' : '暂时缺货'}
                             </button>
+                            <button class="btn btn-favorite ${product.is_favorited ? 'favorited' : ''}" 
+                                    id="favoriteBtn"
+                                    onclick="toggleFavorite(${product.id})">
+                                ${product.is_favorited ? '❤️ 已收藏' : '🤍 收藏'}
+                            </button>
                         </div>
 
                         <div class="detail-meta">
@@ -164,16 +199,126 @@
                     </div>
                 </div>
 
-                <div class="detail-description">
-                    <h2>商品详情</h2>
-                    <div class="description-content">
-                        ${product.description 
-                            ? escapeHtml(product.description).replace(/\n/g, '<br>')
-                            : '<p class="no-description">暂无商品详情</p>'
-                        }
+                <div class="detail-tabs">
+                    <div class="tab-nav">
+                        <button class="tab-btn active" onclick="switchTab('desc')">商品详情</button>
+                        <button class="tab-btn" onclick="switchTab('reviews')">商品评价 (${product.total_reviews || 0})</button>
+                    </div>
+                    <div class="tab-content" id="tabDesc">
+                        <div class="description-content">
+                            ${product.description 
+                                ? escapeHtml(product.description).replace(/\n/g, '<br>')
+                                : '<p class="no-description">暂无商品详情</p>'
+                            }
+                        </div>
+                    </div>
+                    <div class="tab-content" id="tabReviews" style="display:none;">
+                        <div id="reviewsContent"><div class="loading">加载评价中...</div></div>
                     </div>
                 </div>
             `;
+
+            // 加载评价
+            loadReviews(product.id);
+        }
+
+        // 切换主图
+        function switchImage(index, url) {
+            currentImageIndex = index;
+            document.getElementById('mainImage').src = url;
+            document.querySelectorAll('.thumb-img').forEach((el, i) => {
+                el.classList.toggle('active', i === index);
+            });
+        }
+
+        // 切换标签页
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tabDesc').style.display = tab === 'desc' ? 'block' : 'none';
+            document.getElementById('tabReviews').style.display = tab === 'reviews' ? 'block' : 'none';
+            event.target.classList.add('active');
+        }
+
+        // 加载评价
+        async function loadReviews(productId) {
+            const result = await ProductAPI.getReviewList(productId, 1, 20);
+            const container = document.getElementById('reviewsContent');
+
+            if (!result.success) {
+                container.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">加载评价失败</p>';
+                return;
+            }
+
+            const { list, stats } = result.data;
+
+            let html = `
+                <div class="review-stats">
+                    <div class="review-score">${stats.avg_rating}</div>
+                    <div class="review-summary">
+                        <div>好评率 ${stats.good_rate}%</div>
+                        <div style="color:#999;font-size:13px;">
+                            好评(${stats.good_count}) 中评(${stats.mid_count}) 差评(${stats.bad_count})
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (list.length === 0) {
+                html += '<p style="color:#999;text-align:center;padding:30px;">暂无评价</p>';
+            } else {
+                html += list.map(r => `
+                    <div class="review-item">
+                        <div class="review-header">
+                            <span class="review-user">👤 ${escapeHtml(r.username || '匿名用户')}</span>
+                            <span class="review-rating">${'⭐'.repeat(r.rating)}</span>
+                            <span class="review-time">${r.created_at ? r.created_at.substring(0, 10) : ''}</span>
+                        </div>
+                        <div class="review-body">${r.content ? escapeHtml(r.content) : '<span style="color:#999;">用户未填写评价内容</span>'}</div>
+                        ${r.images && r.images.length > 0 ? `
+                            <div class="review-images">
+                                ${r.images.map(img => `<img src="${img}" class="review-img" />`).join('')}
+                            </div>
+                        ` : ''}
+                        ${r.reply_content ? `
+                            <div class="review-reply">
+                                <strong>商家回复：</strong>${escapeHtml(r.reply_content)}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('');
+            }
+
+            container.innerHTML = html;
+        }
+
+        // 收藏/取消收藏
+        async function toggleFavorite(productId) {
+            if (!Auth.isLoggedIn()) {
+                if (confirm('请先登录后再收藏，是否前往登录？')) {
+                    window.location.href = 'login.html';
+                }
+                return;
+            }
+
+            const btn = document.getElementById('favoriteBtn');
+            const isFavorited = btn.classList.contains('favorited');
+
+            let result;
+            if (isFavorited) {
+                result = await API.deleteFavorite(productId);
+                if (result.success) {
+                    btn.classList.remove('favorited');
+                    btn.innerHTML = '🤍 收藏';
+                }
+            } else {
+                result = await API.addFavorite(productId);
+                if (result.success) {
+                    btn.classList.add('favorited');
+                    btn.innerHTML = '❤️ 已收藏';
+                }
+            }
+
+            if (!result.success) alert(result.message);
         }
 
         // 数量调整

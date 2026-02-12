@@ -806,11 +806,12 @@ function handleOrderDetail(): void
     $order['snap_address'] = $order['snap_address'] ? json_decode($order['snap_address'], true) : null;
     
     //获取订单商品
-     $stmt = $pdo->prepare("SELECT oi.*, p.cover_image, p.status as product_status
+     $stmt = $pdo->prepare("SELECT oi.*, p.cover_image, p.status as product_status,
+                                   (SELECT COUNT(*) FROM product_reviews pr WHERE pr.product_id = oi.product_id AND pr.order_item_id = oi.id AND pr.user_id = ?) as is_reviewed
                            FROM order_items oi 
                            LEFT JOIN products p ON oi.product_id = p.id 
                            WHERE oi.order_id = ?");
-    $stmt->execute([$order['id']]);
+    $stmt->execute([$userId, $order['id']]);
     $order['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     foreach ($order['items'] as &$item) {
@@ -819,6 +820,7 @@ function handleOrderDetail(): void
         $item['price'] = (float)$item['price'];
         $item['quantity'] = (int)$item['quantity'];
         $item['subtotal'] = $item['price'] * $item['quantity'];
+        $item['is_reviewed'] = (int)$item['is_reviewed'] > 0;
     }
     unset($item);
     
@@ -946,9 +948,18 @@ function handleOrderCreate(): void
         }
         
         // 锁定库存
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 4, ?, ?, ?, ?, '订单锁定库存')");
         foreach ($cartItems as $item) {
+            // 查询当前库存
+            $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
+            $stk->execute([$item['product_id']]);
+            $beforeStock = (int)($stk->fetchColumn() ?: 0);
+
             $stmt = $pdo->prepare("UPDATE inventory SET locked_stock = locked_stock + ? WHERE product_id = ?");
             $stmt->execute([$item['quantity'], $item['product_id']]);
+
+            // 记录库存日志
+            $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock, $orderId]);
         }
 
         // 删除购物车项
@@ -1011,9 +1022,17 @@ function handleOrderCancel(): void
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 5, ?, ?, ?, ?, '订单取消释放库存')");
         foreach ($items as $item) {
+            $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
+            $stk->execute([$item['product_id']]);
+            $currentStock = (int)($stk->fetchColumn() ?: 0);
+
             $stmt = $pdo->prepare("UPDATE inventory SET locked_stock = GREATEST(0, locked_stock - ?) WHERE product_id = ?");
             $stmt->execute([$item['quantity'], $item['product_id']]);
+
+            // 记录库存日志
+            $logStmt->execute([$item['product_id'], $item['quantity'], $currentStock, $currentStock, $orderId]);
         }
         
         $pdo->commit();
@@ -1460,9 +1479,17 @@ function handlePayOrder(): void
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 2, ?, ?, ?, ?, '支付扣减库存')");
         foreach ($items as $item) {
+            $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
+            $stk->execute([$item['product_id']]);
+            $beforeStock = (int)($stk->fetchColumn() ?: 0);
+
             $stmt = $pdo->prepare("UPDATE inventory SET stock = stock - ?, locked_stock = GREATEST(0, locked_stock - ?) WHERE product_id = ?");
             $stmt->execute([$item['quantity'], $item['quantity'], $item['product_id']]);
+
+            // 记录库存日志
+            $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock - (int)$item['quantity'], $orderId]);
         }
         
         $pdo->commit();

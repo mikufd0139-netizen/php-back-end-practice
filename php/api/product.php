@@ -1,6 +1,6 @@
 <?php
 /**
- * 商品模块统一入口 - 包含分类、商品、库存、图片上传
+ * 商品模块统一入口 - 包含分类、品牌、商品、商品图片、库存、评价、图片上传
  * 
  * === 分类接口 ===
  * GET    ?action=category_list              获取分类列表(树形)
@@ -9,17 +9,38 @@
  * POST   ?action=category_update            更新分类 (管理员)
  * POST   ?action=category_delete            删除分类 (管理员)
  * 
+ * === 品牌接口 ===
+ * GET    ?action=brand_list                 品牌列表
+ * GET    ?action=brand_detail&id=1          品牌详情
+ * POST   ?action=brand_add                  添加品牌 (管理员)
+ * POST   ?action=brand_update               更新品牌 (管理员)
+ * POST   ?action=brand_delete               删除品牌 (管理员)
+ * 
  * === 商品接口 ===
  * GET    ?action=product_list               商品列表(支持搜索/筛选/分页)
- * GET    ?action=product_detail&id=1        商品详情
+ * GET    ?action=product_detail&id=1        商品详情(含图片/品牌/评价统计)
  * POST   ?action=product_add                添加商品 (管理员)
  * POST   ?action=product_update             更新商品 (管理员)
  * POST   ?action=product_delete             删除商品 (管理员)
  * POST   ?action=product_toggle_status      切换商品状态 (管理员)
  * 
+ * === 商品图片接口 ===
+ * GET    ?action=product_image_list&product_id=1  获取商品图片列表
+ * POST   ?action=product_image_add                添加商品图片 (管理员)
+ * POST   ?action=product_image_delete             删除商品图片 (管理员)
+ * POST   ?action=product_image_sort               更新图片排序 (管理员)
+ * POST   ?action=product_image_set_cover          设为封面图 (管理员)
+ * 
  * === 库存接口 ===
  * GET    ?action=inventory_get&product_id=1 获取库存信息
- * POST   ?action=inventory_update           更新库存 (管理员)
+ * POST   ?action=inventory_update           更新库存 (管理员，自动记录日志)
+ * GET    ?action=inventory_log_list         库存变动日志 (管理员)
+ * 
+ * === 商品评价接口 ===
+ * GET    ?action=review_list&product_id=1   获取商品评价列表 (公开)
+ * POST   ?action=review_add                 提交评价 (用户)
+ * GET    ?action=admin_review_list          管理员评价列表
+ * POST   ?action=admin_review_reply         管理员回复评价
  * 
  * === 图片上传 ===
  * POST   ?action=upload_image               上传图片 (管理员)
@@ -53,6 +74,22 @@ switch ($action) {
     case 'category_delete':
         handleCategoryDelete();
         break;
+    // 品牌接口
+    case 'brand_list':
+        handleBrandList();
+        break;
+    case 'brand_detail':
+        handleBrandDetail();
+        break;
+    case 'brand_add':
+        handleBrandAdd();
+        break;
+    case 'brand_update':
+        handleBrandUpdate();
+        break;
+    case 'brand_delete':
+        handleBrandDelete();
+        break;
     // 商品接口
     case 'product_list':
         handleProductList();
@@ -72,12 +109,44 @@ switch ($action) {
     case 'product_toggle_status':
         handleProductToggleStatus();
         break;
+    // 商品图片接口
+    case 'product_image_list':
+        handleProductImageList();
+        break;
+    case 'product_image_add':
+        handleProductImageAdd();
+        break;
+    case 'product_image_delete':
+        handleProductImageDelete();
+        break;
+    case 'product_image_sort':
+        handleProductImageSort();
+        break;
+    case 'product_image_set_cover':
+        handleProductImageSetCover();
+        break;
     // 库存接口
     case 'inventory_get':
         handleInventoryGet();
         break;
     case 'inventory_update':
         handleInventoryUpdate();
+        break;
+    case 'inventory_log_list':
+        handleInventoryLogList();
+        break;
+    // 商品评价接口
+    case 'review_list':
+        handleReviewList();
+        break;
+    case 'review_add':
+        handleReviewAdd();
+        break;
+    case 'admin_review_list':
+        handleAdminReviewList();
+        break;
+    case 'admin_review_reply':
+        handleAdminReviewReply();
         break;
     // 图片上传
     case 'upload_image':
@@ -455,6 +524,223 @@ function handleCategoryDelete(): void
     Response::success(null, '删除成功');
 }
 
+// ============ 品牌处理函数 ============
+
+/**
+ * 获取品牌列表
+ */
+function handleBrandList(): void
+{
+    Request::allowMethods('GET');
+
+    $pdo = getDB();
+    $showHidden = ($_GET['show_hidden'] ?? '0') === '1';
+
+    $where = $showHidden ? '' : 'WHERE status = 1';
+    $stmt = $pdo->query("SELECT id, name, name_en, logo, description, sort_order, status, created_at 
+                         FROM brands {$where} ORDER BY sort_order ASC, id ASC");
+    $brands = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($brands as &$brand) {
+        $brand['id'] = (int)$brand['id'];
+        $brand['sort_order'] = (int)$brand['sort_order'];
+        $brand['status'] = (int)$brand['status'];
+    }
+    unset($brand);
+
+    Response::success($brands, '获取成功');
+}
+
+/**
+ * 获取品牌详情
+ */
+function handleBrandDetail(): void
+{
+    Request::allowMethods('GET');
+
+    $id = (int)($_GET['id'] ?? 0);
+    if ($id <= 0) {
+        Response::error('品牌ID无效', 400);
+    }
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare("SELECT * FROM brands WHERE id = ?");
+    $stmt->execute([$id]);
+    $brand = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$brand) {
+        Response::error('品牌不存在', 404);
+    }
+
+    // 统计该品牌下的商品数量
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE brand_id = ?");
+    $stmt->execute([$id]);
+    $brand['product_count'] = (int)$stmt->fetchColumn();
+
+    $brand['id'] = (int)$brand['id'];
+    $brand['sort_order'] = (int)$brand['sort_order'];
+    $brand['status'] = (int)$brand['status'];
+
+    Response::success($brand, '获取成功');
+}
+
+/**
+ * 添加品牌 (管理员)
+ */
+function handleBrandAdd(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $name = trim(Request::input('name', ''));
+    $nameEn = trim(Request::input('name_en', ''));
+    $logo = trim(Request::input('logo', ''));
+    $description = trim(Request::input('description', ''));
+    $sortOrder = (int)Request::input('sort_order', 0);
+    $status = (int)Request::input('status', 1);
+
+    if (empty($name)) {
+        Response::error('品牌名称不能为空', 400);
+    }
+    if (mb_strlen($name) > 100) {
+        Response::error('品牌名称不能超过100个字符', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查品牌名称是否重复
+    $stmt = $pdo->prepare("SELECT id FROM brands WHERE name = ?");
+    $stmt->execute([$name]);
+    if ($stmt->fetch()) {
+        Response::error('品牌名称已存在', 409);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO brands (name, name_en, logo, description, sort_order, status) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $name,
+        $nameEn ?: null,
+        $logo ?: null,
+        $description ?: null,
+        $sortOrder,
+        $status
+    ]);
+
+    Response::success(['brand_id' => (int)$pdo->lastInsertId()], '品牌添加成功', 201);
+}
+
+/**
+ * 更新品牌 (管理员)
+ */
+function handleBrandUpdate(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('品牌ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM brands WHERE id = ?");
+    $stmt->execute([$id]);
+    $brand = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$brand) {
+        Response::error('品牌不存在', 404);
+    }
+
+    $name = Request::input('name');
+    $nameEn = Request::input('name_en');
+    $logo = Request::input('logo');
+    $description = Request::input('description');
+    $sortOrder = Request::input('sort_order');
+    $status = Request::input('status');
+
+    $updates = [];
+    $params = [];
+
+    if ($name !== null) {
+        $name = trim($name);
+        if (empty($name)) {
+            Response::error('品牌名称不能为空', 400);
+        }
+        // 检查重名（排除自己）
+        $stmt = $pdo->prepare("SELECT id FROM brands WHERE name = ? AND id != ?");
+        $stmt->execute([$name, $id]);
+        if ($stmt->fetch()) {
+            Response::error('品牌名称已存在', 409);
+        }
+        $updates[] = "name = ?";
+        $params[] = $name;
+    }
+    if ($nameEn !== null) {
+        $updates[] = "name_en = ?";
+        $params[] = trim($nameEn) ?: null;
+    }
+    if ($logo !== null) {
+        $updates[] = "logo = ?";
+        $params[] = trim($logo) ?: null;
+    }
+    if ($description !== null) {
+        $updates[] = "description = ?";
+        $params[] = trim($description) ?: null;
+    }
+    if ($sortOrder !== null) {
+        $updates[] = "sort_order = ?";
+        $params[] = (int)$sortOrder;
+    }
+    if ($status !== null) {
+        $updates[] = "status = ?";
+        $params[] = (int)$status;
+    }
+
+    if (empty($updates)) {
+        Response::error('没有提供任何更新字段', 400);
+    }
+
+    $params[] = $id;
+    $sql = "UPDATE brands SET " . implode(', ', $updates) . " WHERE id = ?";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+
+    Response::success(null, '品牌更新成功');
+}
+
+/**
+ * 删除品牌 (管理员)
+ */
+function handleBrandDelete(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('品牌ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT id FROM brands WHERE id = ?");
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) {
+        Response::error('品牌不存在', 404);
+    }
+
+    // 检查是否有商品关联
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM products WHERE brand_id = ?");
+    $stmt->execute([$id]);
+    if ($stmt->fetchColumn() > 0) {
+        Response::error('该品牌下存在商品，无法删除', 400);
+    }
+
+    $stmt = $pdo->prepare("DELETE FROM brands WHERE id = ?");
+    $stmt->execute([$id]);
+
+    Response::success(null, '品牌删除成功');
+}
+
 //商品处理函数
 
 /**
@@ -558,7 +844,7 @@ function handleProductList(): void
     
     // 获取列表
     $sql = "SELECT p.id, p.spu_no, p.name, p.subtitle, p.cover_image, p.price, p.original_price, 
-                   p.category_id, p.brand_id, c.name as category_name, p.status, 
+                   p.category_id, p.brand_id, c.name as category_name, b.name as brand_name, p.status, 
                    p.sales_count, p.view_count, p.rating,
                    p.is_recommend, p.is_new, p.is_hot,
                    p.created_at, p.updated_at,
@@ -566,6 +852,7 @@ function handleProductList(): void
                    COALESCE(i.locked_stock, 0) as locked_stock
             FROM products p
             LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN brands b ON p.brand_id = b.id
             LEFT JOIN inventory i ON p.id = i.product_id
             {$whereClause}
             ORDER BY p.{$sortBy} {$sortOrder}
@@ -621,10 +908,12 @@ function handleProductList(): void
     $pdo = getDB();
 
     $sql = "SELECT p.*, c.name as category_name,
+                   b.name as brand_name, b.logo as brand_logo,
                    COALESCE(i.stock, 0) as stock,
                    COALESCE(i.locked_stock, 0) as locked_stock
             FROM products p
             LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN brands b ON p.brand_id = b.id
             LEFT JOIN inventory i ON p.id = i.product_id
             WHERE p.id = ?";
 
@@ -638,6 +927,20 @@ function handleProductList(): void
 
     // 浏览量+1
     $pdo->prepare("UPDATE products SET view_count = view_count + 1 WHERE id = ?")->execute([$id]);
+
+    // 记录用户足迹（如果已登录）
+    if (Auth::check()) {
+        $userId = Auth::getUserId();
+        $stmt = $pdo->prepare("SELECT id FROM user_footprints WHERE user_id = ? AND product_id = ?");
+        $stmt->execute([$userId, $id]);
+        if ($stmt->fetch()) {
+            $pdo->prepare("UPDATE user_footprints SET updated_at = NOW() WHERE user_id = ? AND product_id = ?")
+                ->execute([$userId, $id]);
+        } else {
+            $pdo->prepare("INSERT INTO user_footprints (user_id, product_id) VALUES (?, ?)")
+                ->execute([$userId, $id]);
+        }
+    }
 
     //转换数据类型
     $product['id'] = (int)$product['id'];
@@ -655,6 +958,32 @@ function handleProductList(): void
     $product['stock'] = (int)$product['stock'];
     $product['locked_stock'] = (int)$product['locked_stock'];
     $product['available_stock'] = $product['stock'] - $product['locked_stock'];
+
+    // 获取商品图片列表
+    $stmt = $pdo->prepare("SELECT id, image_url, sort_order, is_cover FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC");
+    $stmt->execute([$id]);
+    $product['images'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($product['images'] as &$img) {
+        $img['id'] = (int)$img['id'];
+        $img['sort_order'] = (int)$img['sort_order'];
+        $img['is_cover'] = (int)$img['is_cover'];
+    }
+    unset($img);
+
+    // 获取评价统计
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total_reviews, AVG(rating) as avg_rating FROM product_reviews WHERE product_id = ? AND status = 1");
+    $stmt->execute([$id]);
+    $reviewStats = $stmt->fetch(PDO::FETCH_ASSOC);
+    $product['total_reviews'] = (int)$reviewStats['total_reviews'];
+    $product['avg_rating'] = $reviewStats['avg_rating'] ? round((float)$reviewStats['avg_rating'], 1) : 5.0;
+
+    // 检查当前用户是否已收藏
+    $product['is_favorited'] = false;
+    if (Auth::check()) {
+        $stmt = $pdo->prepare("SELECT id FROM user_favorites WHERE user_id = ? AND product_id = ?");
+        $stmt->execute([Auth::getUserId(), $id]);
+        $product['is_favorited'] = (bool)$stmt->fetch();
+    }
 
     Response::success($product, '获取成功');
  }
@@ -943,9 +1272,18 @@ function handleProductDelete(): void
             $stmt->execute([$id]);
         }
 
-        //删除库存记录。（由于有外键 CASCADE， 可能会自动删除）
+        //删除库存记录
         $stmt = $pdo->prepare("DELETE FROM inventory WHERE product_id = ?");
         $stmt->execute([$id]);
+
+        //删除商品图片记录
+        $pdo->prepare("DELETE FROM product_images WHERE product_id = ?")->execute([$id]);
+
+        //删除收藏记录
+        $pdo->prepare("DELETE FROM user_favorites WHERE product_id = ?")->execute([$id]);
+
+        //删除足迹记录
+        $pdo->prepare("DELETE FROM user_footprints WHERE product_id = ?")->execute([$id]);
 
         //删除商品
         $stmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
@@ -1114,6 +1452,11 @@ function handleInventoryUpdate(): void
         $stmt->execute([$productId, $newStock]);
     }
 
+    // 记录库存变动日志
+    $logType = match($type) { 'set' => 1, 'add' => 2, 'reduce' => 3, default => 1 };
+    $stmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, operator_id, reason) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([$productId, $logType, $newStock - $currentStock, $currentStock, $newStock, Auth::getUserId(), $reason ?: null]);
+
     Response::success([
         'product_id' => $productId,
         'product_name' => $product['name'],  // 修复：使用正确的变量
@@ -1123,6 +1466,488 @@ function handleInventoryUpdate(): void
         'locked_stock' => $lockedStock,
         'available_stock' => $newStock - $lockedStock
     ], '库存更新成功');
+}
+
+// ============ 库存变动日志 ============
+
+/**
+ * 获取库存变动日志列表 (管理员)
+ */
+function handleInventoryLogList(): void
+{
+    Request::allowMethods('GET');
+    requireAdmin();
+
+    $pdo = getDB();
+
+    $productId = $_GET['product_id'] ?? '';
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $pageSize = min(100, max(1, (int)($_GET['page_size'] ?? 20)));
+
+    $where = [];
+    $params = [];
+
+    if ($productId !== '' && (int)$productId > 0) {
+        $where[] = "il.product_id = ?";
+        $params[] = (int)$productId;
+    }
+
+    $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+    // 总数
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM inventory_logs il {$whereClause}");
+    $stmt->execute($params);
+    $total = (int)$stmt->fetchColumn();
+    $totalPages = $total > 0 ? ceil($total / $pageSize) : 0;
+    $offset = ($page - 1) * $pageSize;
+
+    // 列表
+    $sql = "SELECT il.*, p.name as product_name, u.username as operator_name
+            FROM inventory_logs il
+            LEFT JOIN products p ON il.product_id = p.id
+            LEFT JOIN users u ON il.operator_id = u.id
+            {$whereClause}
+            ORDER BY il.created_at DESC
+            LIMIT {$pageSize} OFFSET {$offset}";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $typeMap = [1 => '设置', 2 => '入库', 3 => '出库', 4 => '订单锁定', 5 => '订单释放', 6 => '订单扣减'];
+    foreach ($logs as &$log) {
+        $log['id'] = (int)$log['id'];
+        $log['product_id'] = (int)$log['product_id'];
+        $log['type'] = (int)$log['type'];
+        $log['type_text'] = $typeMap[$log['type']] ?? '未知';
+        $log['quantity'] = (int)$log['quantity'];
+        $log['before_stock'] = (int)$log['before_stock'];
+        $log['after_stock'] = (int)$log['after_stock'];
+    }
+    unset($log);
+
+    Response::success([
+        'list' => $logs,
+        'pagination' => [
+            'page' => $page,
+            'page_size' => $pageSize,
+            'total' => $total,
+            'total_pages' => $totalPages
+        ]
+    ], '获取成功');
+}
+
+// ============ 商品图片处理函数 ============
+
+/**
+ * 获取商品图片列表
+ */
+function handleProductImageList(): void
+{
+    Request::allowMethods('GET');
+
+    $productId = (int)($_GET['product_id'] ?? 0);
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+
+    $pdo = getDB();
+    $stmt = $pdo->prepare("SELECT id, product_id, image_url, sort_order, is_cover, created_at FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC");
+    $stmt->execute([$productId]);
+    $images = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($images as &$img) {
+        $img['id'] = (int)$img['id'];
+        $img['product_id'] = (int)$img['product_id'];
+        $img['sort_order'] = (int)$img['sort_order'];
+        $img['is_cover'] = (int)$img['is_cover'];
+    }
+    unset($img);
+
+    Response::success($images, '获取成功');
+}
+
+/**
+ * 添加商品图片 (管理员)
+ */
+function handleProductImageAdd(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $productId = (int)Request::input('product_id', 0);
+    $imageUrl = trim(Request::input('image_url', ''));
+    $sortOrder = (int)Request::input('sort_order', 0);
+    $isCover = (int)Request::input('is_cover', 0);
+
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+    if (empty($imageUrl)) {
+        Response::error('图片地址不能为空', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查商品是否存在
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ?");
+    $stmt->execute([$productId]);
+    if (!$stmt->fetch()) {
+        Response::error('商品不存在', 404);
+    }
+
+    // 如果设为封面，取消其他封面
+    if ($isCover) {
+        $pdo->prepare("UPDATE product_images SET is_cover = 0 WHERE product_id = ?")->execute([$productId]);
+        // 同时更新商品封面图
+        $pdo->prepare("UPDATE products SET cover_image = ? WHERE id = ?")->execute([$imageUrl, $productId]);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO product_images (product_id, image_url, sort_order, is_cover) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$productId, $imageUrl, $sortOrder, $isCover]);
+
+    Response::success(['image_id' => (int)$pdo->lastInsertId()], '图片添加成功', 201);
+}
+
+/**
+ * 删除商品图片 (管理员)
+ */
+function handleProductImageDelete(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('图片ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_images WHERE id = ?");
+    $stmt->execute([$id]);
+    $image = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$image) {
+        Response::error('图片不存在', 404);
+    }
+
+    $pdo->prepare("DELETE FROM product_images WHERE id = ?")->execute([$id]);
+
+    // 如果删除的是封面图，清空商品封面或设置下一张为封面
+    if ($image['is_cover']) {
+        $stmt = $pdo->prepare("SELECT id, image_url FROM product_images WHERE product_id = ? ORDER BY sort_order ASC LIMIT 1");
+        $stmt->execute([$image['product_id']]);
+        $next = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($next) {
+            $pdo->prepare("UPDATE product_images SET is_cover = 1 WHERE id = ?")->execute([$next['id']]);
+            $pdo->prepare("UPDATE products SET cover_image = ? WHERE id = ?")->execute([$next['image_url'], $image['product_id']]);
+        } else {
+            $pdo->prepare("UPDATE products SET cover_image = NULL WHERE id = ?")->execute([$image['product_id']]);
+        }
+    }
+
+    Response::success(null, '图片删除成功');
+}
+
+/**
+ * 更新商品图片排序 (管理员)
+ */
+function handleProductImageSort(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $images = Request::input('images', []);
+    if (empty($images) || !is_array($images)) {
+        Response::error('请提供图片排序数据', 400);
+    }
+
+    $pdo = getDB();
+    foreach ($images as $item) {
+        if (isset($item['id']) && isset($item['sort_order'])) {
+            $pdo->prepare("UPDATE product_images SET sort_order = ? WHERE id = ?")
+                ->execute([(int)$item['sort_order'], (int)$item['id']]);
+        }
+    }
+
+    Response::success(null, '排序更新成功');
+}
+
+/**
+ * 设为封面图 (管理员)
+ */
+function handleProductImageSetCover(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('图片ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_images WHERE id = ?");
+    $stmt->execute([$id]);
+    $image = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$image) {
+        Response::error('图片不存在', 404);
+    }
+
+    // 取消当前封面
+    $pdo->prepare("UPDATE product_images SET is_cover = 0 WHERE product_id = ?")->execute([$image['product_id']]);
+    // 设置新封面
+    $pdo->prepare("UPDATE product_images SET is_cover = 1 WHERE id = ?")->execute([$id]);
+    // 更新商品封面
+    $pdo->prepare("UPDATE products SET cover_image = ? WHERE id = ?")->execute([$image['image_url'], $image['product_id']]);
+
+    Response::success(null, '已设为封面图');
+}
+
+// ============ 商品评价处理函数 ============
+
+/**
+ * 获取商品评价列表 (公开)
+ */
+function handleReviewList(): void
+{
+    Request::allowMethods('GET');
+
+    $productId = (int)($_GET['product_id'] ?? 0);
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $pageSize = min(50, max(1, (int)($_GET['page_size'] ?? 10)));
+    $offset = ($page - 1) * $pageSize;
+
+    // 总数
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM product_reviews WHERE product_id = ? AND status = 1");
+    $stmt->execute([$productId]);
+    $total = (int)$stmt->fetchColumn();
+    $totalPages = $total > 0 ? ceil($total / $pageSize) : 0;
+
+    // 列表
+    $stmt = $pdo->prepare("SELECT r.id, r.rating, r.content, r.images, r.is_anonymous, r.reply_content, r.reply_time, r.created_at,
+                                  u.username
+                           FROM product_reviews r
+                           LEFT JOIN users u ON r.user_id = u.id
+                           WHERE r.product_id = ? AND r.status = 1
+                           ORDER BY r.created_at DESC
+                           LIMIT ? OFFSET ?");
+    $stmt->bindValue(1, $productId, PDO::PARAM_INT);
+    $stmt->bindValue(2, $pageSize, PDO::PARAM_INT);
+    $stmt->bindValue(3, $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    $reviews = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($reviews as &$review) {
+        $review['id'] = (int)$review['id'];
+        $review['rating'] = (int)$review['rating'];
+        $review['is_anonymous'] = (int)$review['is_anonymous'];
+        $review['images'] = $review['images'] ? json_decode($review['images'], true) : [];
+        // 匿名处理
+        if ($review['is_anonymous'] && $review['username']) {
+            $review['username'] = mb_substr($review['username'], 0, 1) . '***';
+        }
+    }
+    unset($review);
+
+    // 评价统计
+    $stmt = $pdo->prepare("SELECT COUNT(*) as total, AVG(rating) as avg_rating,
+                           SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as good_count,
+                           SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as mid_count,
+                           SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as bad_count
+                           FROM product_reviews WHERE product_id = ? AND status = 1");
+    $stmt->execute([$productId]);
+    $stats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    Response::success([
+        'list' => $reviews,
+        'stats' => [
+            'total' => (int)$stats['total'],
+            'avg_rating' => $stats['avg_rating'] ? round((float)$stats['avg_rating'], 1) : 5.0,
+            'good_count' => (int)$stats['good_count'],
+            'mid_count' => (int)$stats['mid_count'],
+            'bad_count' => (int)$stats['bad_count'],
+            'good_rate' => $stats['total'] > 0 ? round((int)$stats['good_count'] / (int)$stats['total'] * 100) : 100
+        ],
+        'pagination' => [
+            'page' => $page,
+            'page_size' => $pageSize,
+            'total' => $total,
+            'total_pages' => $totalPages
+        ]
+    ], '获取成功');
+}
+
+/**
+ * 提交评价 (用户)
+ */
+function handleReviewAdd(): void
+{
+    Request::allowMethods('POST');
+    Auth::requireLogin();
+
+    $userId = Auth::getUserId();
+    $orderItemId = (int)Request::input('order_item_id', 0);
+    $rating = (int)Request::input('rating', 5);
+    $content = trim(Request::input('content', ''));
+    $images = Request::input('images', []);
+    $isAnonymous = (int)Request::input('is_anonymous', 0);
+
+    if ($orderItemId <= 0) {
+        Response::error('订单商品ID无效', 400);
+    }
+    if ($rating < 1 || $rating > 5) {
+        Response::error('评分必须在1-5之间', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查订单项是否属于当前用户且已完成
+    $stmt = $pdo->prepare("SELECT oi.id, oi.order_id, oi.product_id, o.status, o.user_id
+                           FROM order_items oi
+                           JOIN orders o ON oi.order_id = o.id
+                           WHERE oi.id = ?");
+    $stmt->execute([$orderItemId]);
+    $orderItem = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$orderItem) {
+        Response::error('订单商品不存在', 404);
+    }
+    if ((int)$orderItem['user_id'] !== $userId) {
+        Response::error('无权评价此商品', 403);
+    }
+    if ((int)$orderItem['status'] !== 3) {
+        Response::error('只有已完成的订单才能评价', 400);
+    }
+
+    // 检查是否已评价
+    $stmt = $pdo->prepare("SELECT id FROM product_reviews WHERE order_item_id = ?");
+    $stmt->execute([$orderItemId]);
+    if ($stmt->fetch()) {
+        Response::error('该商品已评价', 409);
+    }
+
+    $imagesJson = is_array($images) && !empty($images) ? json_encode($images) : null;
+
+    $stmt = $pdo->prepare("INSERT INTO product_reviews (user_id, order_id, order_item_id, product_id, rating, content, images, is_anonymous) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->execute([
+        $userId,
+        (int)$orderItem['order_id'],
+        $orderItemId,
+        (int)$orderItem['product_id'],
+        $rating,
+        $content ?: null,
+        $imagesJson,
+        $isAnonymous
+    ]);
+
+    // 更新商品评分
+    $stmt = $pdo->prepare("SELECT AVG(rating) as avg FROM product_reviews WHERE product_id = ? AND status = 1");
+    $stmt->execute([(int)$orderItem['product_id']]);
+    $avg = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($avg['avg']) {
+        $pdo->prepare("UPDATE products SET rating = ? WHERE id = ?")
+            ->execute([round((float)$avg['avg'], 1), (int)$orderItem['product_id']]);
+    }
+
+    Response::success(null, '评价提交成功', 201);
+}
+
+/**
+ * 管理员评价列表
+ */
+function handleAdminReviewList(): void
+{
+    Request::allowMethods('GET');
+    requireAdmin();
+
+    $pdo = getDB();
+
+    $page = max(1, (int)($_GET['page'] ?? 1));
+    $pageSize = min(50, max(1, (int)($_GET['page_size'] ?? 20)));
+    $productId = $_GET['product_id'] ?? '';
+    $offset = ($page - 1) * $pageSize;
+
+    $where = [];
+    $params = [];
+    if ($productId !== '' && (int)$productId > 0) {
+        $where[] = "r.product_id = ?";
+        $params[] = (int)$productId;
+    }
+    $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
+
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM product_reviews r {$whereClause}");
+    $stmt->execute($params);
+    $total = (int)$stmt->fetchColumn();
+    $totalPages = $total > 0 ? ceil($total / $pageSize) : 0;
+
+    $sql = "SELECT r.*, u.username, p.name as product_name
+            FROM product_reviews r
+            LEFT JOIN users u ON r.user_id = u.id
+            LEFT JOIN products p ON r.product_id = p.id
+            {$whereClause}
+            ORDER BY r.created_at DESC
+            LIMIT {$pageSize} OFFSET {$offset}";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $reviews = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($reviews as &$review) {
+        $review['id'] = (int)$review['id'];
+        $review['rating'] = (int)$review['rating'];
+        $review['status'] = (int)$review['status'];
+        $review['is_anonymous'] = (int)$review['is_anonymous'];
+        $review['images'] = $review['images'] ? json_decode($review['images'], true) : [];
+    }
+    unset($review);
+
+    Response::success([
+        'list' => $reviews,
+        'pagination' => [
+            'page' => $page,
+            'page_size' => $pageSize,
+            'total' => $total,
+            'total_pages' => $totalPages
+        ]
+    ], '获取成功');
+}
+
+/**
+ * 管理员回复评价
+ */
+function handleAdminReviewReply(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    $replyContent = trim(Request::input('reply_content', ''));
+
+    if ($id <= 0) {
+        Response::error('评价ID无效', 400);
+    }
+    if (empty($replyContent)) {
+        Response::error('回复内容不能为空', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT id FROM product_reviews WHERE id = ?");
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) {
+        Response::error('评价不存在', 404);
+    }
+
+    $stmt = $pdo->prepare("UPDATE product_reviews SET reply_content = ?, reply_time = NOW() WHERE id = ?");
+    $stmt->execute([$replyContent, $id]);
+
+    Response::success(null, '回复成功');
 }
 
 //图片上传处理函数

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>浏览足迹 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/product.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container user-page">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt;
+            <a href="profile.html">个人中心</a> &gt;
+            <span>浏览足迹</span>
+        </div>
+
+        <div class="page-header">
+            <h2>👣 浏览足迹</h2>
+            <div>
+                <span id="totalCount" style="color:#999;font-size:14px;margin-right:15px;"></span>
+                <button class="btn-clear" id="btnClear" style="display:none;" onclick="clearAllFootprints()">🗑️ 清空足迹</button>
+            </div>
+        </div>
+
+        <div id="fpContent">
+            <div class="loading">加载中...</div>
+        </div>
+
+        <div class="pagination" id="pagination" style="display:none;"></div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        let currentPage = 1;
+        const pageSize = 20;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+            loadFootprints();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="favorites.html">❤️ 收藏</a>
+                <a href="footprints.html">👣 足迹</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        async function loadFootprints() {
+            const container = document.getElementById('fpContent');
+            const result = await API.getFootprintList(currentPage, pageSize);
+
+            if (!result.success) {
+                container.innerHTML = `<div class="error-state">${result.message}</div>`;
+                return;
+            }
+
+            const { list, total, total_pages } = result.data;
+            document.getElementById('totalCount').textContent = `共 ${total} 条记录`;
+            document.getElementById('btnClear').style.display = total > 0 ? 'inline-block' : 'none';
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p style="font-size:48px;margin-bottom:15px;">👣</p>
+                        <p>还没有浏览记录</p>
+                        <a href="products.html" style="color:#007bff;text-decoration:none;margin-top:10px;display:inline-block;">去逛逛 →</a>
+                    </div>`;
+                document.getElementById('pagination').style.display = 'none';
+                return;
+            }
+
+            // 按日期分组
+            const groups = {};
+            list.forEach(item => {
+                const date = item.last_visit_at ? item.last_visit_at.substring(0, 10) : '未知日期';
+                if (!groups[date]) groups[date] = [];
+                groups[date].push(item);
+            });
+
+            let html = '';
+            for (const [date, items] of Object.entries(groups)) {
+                const label = getDateLabel(date);
+                html += `<div class="date-group-title">${label}</div>`;
+                html += items.map(item => `
+                    <div class="footprint-item" id="fp-${item.id}">
+                        <div class="fp-img" onclick="goProduct(${item.product_id})">
+                            ${item.cover_image
+                                ? `<img src="${item.cover_image}" alt="${escapeHtml(item.product_name)}" />`
+                                : '<span style="color:#ccc;font-size:12px;">无图</span>'
+                            }
+                        </div>
+                        <div class="fp-info">
+                            <div class="fp-name" onclick="goProduct(${item.product_id})">${escapeHtml(item.product_name)}</div>
+                            <div class="fp-price">¥${parseFloat(item.price).toFixed(2)}</div>
+                            <div class="fp-time">浏览 ${item.visit_count || 1} 次 · ${item.last_visit_at ? item.last_visit_at.substring(11, 16) : ''}</div>
+                        </div>
+                        <div class="fp-actions">
+                            <button class="fp-delete" onclick="deleteFootprint(${item.id})" title="删除">✕</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            container.innerHTML = html;
+            renderPagination(total_pages);
+        }
+
+        function getDateLabel(dateStr) {
+            const today = new Date().toISOString().substring(0, 10);
+            const yesterday = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
+            if (dateStr === today) return '📅 今天';
+            if (dateStr === yesterday) return '📅 昨天';
+            return '📅 ' + dateStr;
+        }
+
+        async function deleteFootprint(fpId) {
+            const result = await API.deleteFootprint(fpId);
+            if (result.success) {
+                const el = document.getElementById('fp-' + fpId);
+                if (el) {
+                    el.style.transition = 'opacity 0.3s, height 0.3s, margin 0.3s, padding 0.3s';
+                    el.style.opacity = '0';
+                    el.style.height = '0';
+                    el.style.margin = '0';
+                    el.style.padding = '0';
+                    el.style.overflow = 'hidden';
+                    setTimeout(() => {
+                        el.remove();
+                        if (document.querySelectorAll('.footprint-item').length === 0) {
+                            if (currentPage > 1) currentPage--;
+                            loadFootprints();
+                        }
+                    }, 300);
+                }
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function clearAllFootprints() {
+            if (!confirm('确定要清空所有浏览足迹吗？')) return;
+            const result = await API.clearFootprints();
+            if (result.success) {
+                currentPage = 1;
+                loadFootprints();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function goProduct(productId) {
+            window.location.href = 'product-detail.html?id=' + productId;
+        }
+
+        function renderPagination(totalPages) {
+            const pagination = document.getElementById('pagination');
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            pagination.style.display = 'flex';
+            let html = `<span class="page-info">第 ${currentPage}/${totalPages} 页</span>`;
+
+            if (currentPage > 1) {
+                html += `<button class="page-btn" onclick="goPage(${currentPage - 1})">上一页</button>`;
+            }
+
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 2) {
+                    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+                } else if (Math.abs(i - currentPage) === 3) {
+                    html += '<span class="page-ellipsis">...</span>';
+                }
+            }
+
+            if (currentPage < totalPages) {
+                html += `<button class="page-btn" onclick="goPage(${currentPage + 1})">下一页</button>`;
+            }
+
+            pagination.innerHTML = html;
+        }
+
+        function goPage(page) {
+            currentPage = page;
+            loadFootprints();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

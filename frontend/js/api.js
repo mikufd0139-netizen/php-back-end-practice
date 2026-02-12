@@ -8,20 +8,22 @@ const API = {
 
     /**
      * 发送请求
-     * @param {string} action - 操作类型 (register, login, logout, profile)
-     * @param {string} method - 请求方法 (GET, POST)
-     * @param {object} data - 请求数据
-     * @returns {Promise}
      */
-    async request(action, method = 'GET', data = null) {
-        const url = `${this.baseURL}?action=${action}`;
-        
+    async request(action, method = 'GET', data = null, params = {}) {
+        let url = `${this.baseURL}?action=${action}`;
+
+        Object.keys(params).forEach(key => {
+            if (params[key] !== '' && params[key] !== null && params[key] !== undefined) {
+                url += `&${key}=${encodeURIComponent(params[key])}`;
+            }
+        });
+
         const options = {
             method: method,
             headers: {
                 'Content-Type': 'application/json'
             },
-            credentials: 'include' // 重要：携带 Cookie（Session）
+            credentials: 'include'
         };
 
         if (data && method === 'POST') {
@@ -38,31 +40,53 @@ const API = {
         }
     },
 
-    /**
-     * 用户注册
-     */
+    // ========== 用户认证 ==========
+
     async register(username, password, email = '', phone = '') {
         return this.request('register', 'POST', { username, password, email, phone });
     },
 
-    /**
-     * 用户登录
-     */
     async login(account, password) {
         return this.request('login', 'POST', { account, password });
     },
 
-    /**
-     * 用户登出
-     */
     async logout() {
         return this.request('logout', 'POST');
     },
 
-    /**
-     * 获取用户信息
-     */
     async getProfile() {
         return this.request('profile', 'GET');
+    },
+
+    // ========== 收藏接口 ==========
+
+    async getFavoriteList(page = 1, pageSize = 20) {
+        return this.request('favorite_list', 'GET', null, { page, page_size: pageSize });
+    },
+
+    async addFavorite(productId) {
+        return this.request('favorite_add', 'POST', { product_id: productId });
+    },
+
+    async deleteFavorite(productId) {
+        return this.request('favorite_delete', 'POST', { product_id: productId });
+    },
+
+    async checkFavorite(productId) {
+        return this.request('favorite_check', 'GET', null, { product_id: productId });
+    },
+
+    // ========== 足迹接口 ==========
+
+    async getFootprintList(page = 1, pageSize = 20) {
+        return this.request('footprint_list', 'GET', null, { page, page_size: pageSize });
+    },
+
+    async clearFootprints() {
+        return this.request('footprint_clear', 'POST');
+    },
+
+    async deleteFootprint(productId) {
+        return this.request('footprint_delete', 'POST', { product_id: productId });
     }
 };

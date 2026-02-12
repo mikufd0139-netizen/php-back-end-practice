@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的收藏 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/product.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container user-page">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt;
+            <a href="profile.html">个人中心</a> &gt;
+            <span>我的收藏</span>
+        </div>
+
+        <div class="page-header">
+            <h2>❤️ 我的收藏</h2>
+            <span id="totalCount" style="color:#999;font-size:14px;"></span>
+        </div>
+
+        <div id="favContent">
+            <div class="loading">加载中...</div>
+        </div>
+
+        <div class="pagination" id="pagination" style="display:none;"></div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        let currentPage = 1;
+        const pageSize = 12;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+            loadFavorites();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="favorites.html">❤️ 收藏</a>
+                <a href="footprints.html">👣 足迹</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        async function loadFavorites() {
+            const container = document.getElementById('favContent');
+            const result = await API.getFavoriteList(currentPage, pageSize);
+
+            if (!result.success) {
+                container.innerHTML = `<div class="error-state">${result.message}</div>`;
+                return;
+            }
+
+            const { list, total, total_pages } = result.data;
+            document.getElementById('totalCount').textContent = `共 ${total} 件收藏`;
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p style="font-size:48px;margin-bottom:15px;">🤍</p>
+                        <p>还没有收藏任何商品</p>
+                        <a href="products.html" style="color:#007bff;text-decoration:none;margin-top:10px;display:inline-block;">去逛逛 →</a>
+                    </div>`;
+                document.getElementById('pagination').style.display = 'none';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="fav-grid">
+                    ${list.map(item => `
+                        <div class="fav-card" id="fav-${item.id}">
+                            <div class="fav-img" onclick="goProduct(${item.product_id})">
+                                ${item.cover_image
+                                    ? `<img src="${item.cover_image}" alt="${escapeHtml(item.product_name)}" />`
+                                    : '<span style="color:#ccc;">暂无图片</span>'
+                                }
+                            </div>
+                            <div class="fav-info">
+                                <div class="fav-name" onclick="goProduct(${item.product_id})">${escapeHtml(item.product_name)}</div>
+                                <div class="fav-price">¥${parseFloat(item.price).toFixed(2)}</div>
+                                <div class="fav-time">收藏于 ${item.created_at ? item.created_at.substring(0, 10) : ''}</div>
+                                <div class="fav-actions">
+                                    <button class="btn-sm" onclick="goProduct(${item.product_id})">查看详情</button>
+                                    <button class="btn-sm btn-remove" onclick="removeFavorite(${item.product_id}, ${item.id})">取消收藏</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>`;
+
+            renderPagination(total_pages);
+        }
+
+        async function removeFavorite(productId, favId) {
+            if (!confirm('确定取消收藏？')) return;
+            const result = await API.deleteFavorite(productId);
+            if (result.success) {
+                const card = document.getElementById('fav-' + favId);
+                if (card) {
+                    card.style.transition = 'opacity 0.3s, transform 0.3s';
+                    card.style.opacity = '0';
+                    card.style.transform = 'scale(0.9)';
+                    setTimeout(() => {
+                        card.remove();
+                        // 如果当前页没有卡片了，重新加载
+                        if (document.querySelectorAll('.fav-card').length === 0) {
+                            if (currentPage > 1) currentPage--;
+                            loadFavorites();
+                        }
+                    }, 300);
+                }
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function goProduct(productId) {
+            window.location.href = 'product-detail.html?id=' + productId;
+        }
+
+        function renderPagination(totalPages) {
+            const pagination = document.getElementById('pagination');
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            pagination.style.display = 'flex';
+            let html = `<span class="page-info">第 ${currentPage}/${totalPages} 页</span>`;
+
+            if (currentPage > 1) {
+                html += `<button class="page-btn" onclick="goPage(${currentPage - 1})">上一页</button>`;
+            }
+
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 2) {
+                    html += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+                } else if (Math.abs(i - currentPage) === 3) {
+                    html += '<span class="page-ellipsis">...</span>';
+                }
+            }
+
+            if (currentPage < totalPages) {
+                html += `<button class="page-btn" onclick="goPage(${currentPage + 1})">下一页</button>`;
+            }
+
+            pagination.innerHTML = html;
+        }
+
+        function goPage(page) {
+            currentPage = page;
+            loadFavorites();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

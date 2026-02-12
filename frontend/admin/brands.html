@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>品牌管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="brands.html" class="menu-item active">🏢 品牌管理</a>
+        <a href="products.html" class="menu-item">📦 商品管理</a>
+        <a href="orders.html" class="menu-item">📋 订单管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>品牌管理</h1>
+            <p>管理所有品牌信息</p>
+        </div>
+
+        <!-- 操作栏 -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <span class="page-info" id="brandCount">共 0 个品牌</span>
+            </div>
+            <div class="toolbar-right">
+                <button class="btn btn-primary" onclick="showAddModal()">+ 添加品牌</button>
+            </div>
+        </div>
+
+        <!-- 品牌列表 -->
+        <div class="card">
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <table class="table" id="brandTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th width="60">ID</th>
+                            <th width="80">Logo</th>
+                            <th>品牌名称</th>
+                            <th>英文名</th>
+                            <th>描述</th>
+                            <th width="60">排序</th>
+                            <th width="80">商品数</th>
+                            <th width="80">状态</th>
+                            <th width="140">创建时间</th>
+                            <th width="180">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="brandBody"></tbody>
+                </table>
+                <div class="empty" id="emptyState" style="display: none;">暂无品牌数据</div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 添加/编辑品牌弹窗 -->
+    <div class="modal" id="brandModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">添加品牌</h3>
+                <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="brandForm">
+                    <input type="hidden" id="brandId" />
+                    <div class="form-group">
+                        <label>品牌名称 <span class="required">*</span></label>
+                        <input type="text" id="brandName" placeholder="请输入品牌名称" required />
+                    </div>
+                    <div class="form-group">
+                        <label>英文名称</label>
+                        <input type="text" id="brandNameEn" placeholder="Brand English Name" />
+                    </div>
+                    <div class="form-group">
+                        <label>品牌Logo</label>
+                        <div class="image-upload">
+                            <input type="file" id="logoFile" accept="image/*" onchange="handleLogoUpload()" />
+                            <input type="hidden" id="logoUrl" />
+                            <div class="image-preview" id="logoPreview">
+                                <span>点击上传Logo</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>品牌描述</label>
+                        <textarea id="brandDescription" rows="3" placeholder="请输入品牌描述"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>排序值</label>
+                            <input type="number" id="brandSortOrder" min="0" value="0" />
+                        </div>
+                        <div class="form-group">
+                            <label>状态</label>
+                            <select id="brandStatus">
+                                <option value="1">启用</option>
+                                <option value="0">禁用</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveBrand()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        if (!AdminAuth.requireLogin()) {}
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAdminInfo();
+            loadBrands();
+        });
+
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            if (user) document.getElementById('adminName').textContent = user.username;
+        }
+
+        // 加载品牌列表
+        async function loadBrands() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('brandTable').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+
+            const result = await AdminAPI.getBrandList(true);
+            document.getElementById('loading').style.display = 'none';
+
+            if (result.success) {
+                const brands = result.data;
+                document.getElementById('brandCount').textContent = `共 ${brands.length} 个品牌`;
+
+                if (brands.length > 0) {
+                    renderBrands(brands);
+                    document.getElementById('brandTable').style.display = 'table';
+                } else {
+                    document.getElementById('emptyState').style.display = 'block';
+                }
+            } else {
+                alert('加载失败：' + result.message);
+            }
+        }
+
+        // 渲染品牌列表
+        function renderBrands(brands) {
+            // 需要逐个获取商品数量，这里用品牌详情来获取
+            const tbody = document.getElementById('brandBody');
+            tbody.innerHTML = brands.map(b => `
+                <tr>
+                    <td>${b.id}</td>
+                    <td>
+                        <div class="product-thumb">
+                            ${b.logo 
+                                ? `<img src="${b.logo}" alt="" />` 
+                                : '<span class="no-image">无</span>'
+                            }
+                        </div>
+                    </td>
+                    <td><strong>${escapeHtml(b.name)}</strong></td>
+                    <td>${escapeHtml(b.name_en || '-')}</td>
+                    <td><span style="color:#666;font-size:13px;">${escapeHtml(b.description || '-')}</span></td>
+                    <td>${b.sort_order}</td>
+                    <td><span class="brand-product-count" id="brandPc_${b.id}">-</span></td>
+                    <td>
+                        <span class="tag ${b.status === 1 ? 'tag-success' : 'tag-danger'}">
+                            ${b.status === 1 ? '启用' : '禁用'}
+                        </span>
+                    </td>
+                    <td>${formatDate(b.created_at)}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="editBrand(${b.id})">编辑</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteBrand(${b.id}, '${escapeHtml(b.name)}')">删除</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // 异步加载商品数量
+            brands.forEach(async b => {
+                const detail = await AdminAPI.getBrandDetail(b.id);
+                if (detail.success) {
+                    const el = document.getElementById(`brandPc_${b.id}`);
+                    if (el) el.textContent = detail.data.product_count;
+                }
+            });
+        }
+
+        // 显示添加弹窗
+        function showAddModal() {
+            document.getElementById('modalTitle').textContent = '添加品牌';
+            document.getElementById('brandId').value = '';
+            document.getElementById('brandForm').reset();
+            document.getElementById('brandSortOrder').value = '0';
+            document.getElementById('brandStatus').value = '1';
+            document.getElementById('logoUrl').value = '';
+            document.getElementById('logoPreview').innerHTML = '<span>点击上传Logo</span>';
+            document.getElementById('brandModal').classList.add('show');
+        }
+
+        // 编辑品牌
+        async function editBrand(id) {
+            const result = await AdminAPI.getBrandDetail(id);
+            if (!result.success) {
+                alert('获取品牌信息失败');
+                return;
+            }
+
+            const b = result.data;
+            document.getElementById('modalTitle').textContent = '编辑品牌';
+            document.getElementById('brandId').value = b.id;
+            document.getElementById('brandName').value = b.name;
+            document.getElementById('brandNameEn').value = b.name_en || '';
+            document.getElementById('brandDescription').value = b.description || '';
+            document.getElementById('brandSortOrder').value = b.sort_order;
+            document.getElementById('brandStatus').value = b.status;
+            document.getElementById('logoUrl').value = b.logo || '';
+
+            if (b.logo) {
+                document.getElementById('logoPreview').innerHTML = `<img src="${b.logo}" alt="Logo" />`;
+            } else {
+                document.getElementById('logoPreview').innerHTML = '<span>点击上传Logo</span>';
+            }
+
+            document.getElementById('brandModal').classList.add('show');
+        }
+
+        // Logo上传
+        async function handleLogoUpload() {
+            const file = document.getElementById('logoFile').files[0];
+            if (!file) return;
+
+            document.getElementById('logoPreview').innerHTML = '<span>上传中...</span>';
+            const result = await AdminAPI.uploadImage(file);
+            if (result.success) {
+                document.getElementById('logoUrl').value = result.data.url;
+                document.getElementById('logoPreview').innerHTML = `<img src="${result.data.url}" alt="Logo" />`;
+            } else {
+                alert('上传失败：' + result.message);
+                document.getElementById('logoPreview').innerHTML = '<span>点击上传Logo</span>';
+            }
+        }
+
+        function hideModal() {
+            document.getElementById('brandModal').classList.remove('show');
+        }
+
+        // 保存品牌
+        async function saveBrand() {
+            const id = document.getElementById('brandId').value;
+            const name = document.getElementById('brandName').value.trim();
+
+            if (!name) {
+                alert('请输入品牌名称');
+                return;
+            }
+
+            const data = {
+                name: name,
+                name_en: document.getElementById('brandNameEn').value.trim(),
+                logo: document.getElementById('logoUrl').value,
+                description: document.getElementById('brandDescription').value.trim(),
+                sort_order: parseInt(document.getElementById('brandSortOrder').value) || 0,
+                status: parseInt(document.getElementById('brandStatus').value)
+            };
+
+            let result;
+            if (id) {
+                data.id = parseInt(id);
+                result = await AdminAPI.updateBrand(data);
+            } else {
+                result = await AdminAPI.addBrand(data);
+            }
+
+            if (result.success) {
+                alert(id ? '修改成功' : '添加成功');
+                hideModal();
+                loadBrands();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除品牌
+        async function deleteBrand(id, name) {
+            if (!confirm(`确定要删除品牌「${name}」吗？`)) return;
+
+            const result = await AdminAPI.deleteBrand(id);
+            if (result.success) {
+                alert('删除成功');
+                loadBrands();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return dateStr.substring(0, 10);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

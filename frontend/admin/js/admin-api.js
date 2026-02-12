@@ -163,6 +163,64 @@ const AdminAPI = {
         }
     },
 
+    // ========== 品牌管理 ==========
+
+    async getBrandList(showHidden = true) {
+        return this.request(this.productURL, 'brand_list', 'GET', null, {
+            show_hidden: showHidden ? '1' : '0'
+        });
+    },
+
+    async getBrandDetail(id) {
+        return this.request(this.productURL, 'brand_detail', 'GET', null, { id });
+    },
+
+    async addBrand(data) {
+        return this.request(this.productURL, 'brand_add', 'POST', data);
+    },
+
+    async updateBrand(data) {
+        return this.request(this.productURL, 'brand_update', 'POST', data);
+    },
+
+    async deleteBrand(id) {
+        return this.request(this.productURL, 'brand_delete', 'POST', { id });
+    },
+
+    // ========== 商品图片管理 ==========
+
+    async getProductImages(productId) {
+        return this.request(this.productURL, 'product_image_list', 'GET', null, { product_id: productId });
+    },
+
+    async addProductImage(data) {
+        return this.request(this.productURL, 'product_image_add', 'POST', data);
+    },
+
+    async deleteProductImage(id) {
+        return this.request(this.productURL, 'product_image_delete', 'POST', { id });
+    },
+
+    async setProductImageCover(id) {
+        return this.request(this.productURL, 'product_image_set_cover', 'POST', { id });
+    },
+
+    // ========== 库存日志 ==========
+
+    async getInventoryLogs(params = {}) {
+        return this.request(this.productURL, 'inventory_log_list', 'GET', null, params);
+    },
+
+    // ========== 评价管理 ==========
+
+    async getAdminReviewList(params = {}) {
+        return this.request(this.productURL, 'admin_review_list', 'GET', null, params);
+    },
+
+    async replyReview(id, replyContent) {
+        return this.request(this.productURL, 'admin_review_reply', 'POST', { id, reply_content: replyContent });
+    },
+
     // ========== 订单管理 ==========
 
     async getAdminOrderList(params = {}) {

@@ -6,6 +6,7 @@
     <title>订单详情 - Shop</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/order.css">
+    <link rel="stylesheet" href="css/product.css">
 </head>
 <body>
     <nav class="navbar">
@@ -61,13 +62,50 @@
         </div>
     </div>
 
+    <!-- 评价弹窗 -->
+    <div id="reviewModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:#fff;border-radius:12px;width:90%;max-width:500px;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+            <div style="padding:20px 24px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="margin:0;font-size:18px;color:#333;">✍️ 评价商品</h3>
+                <button onclick="hideReviewModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#999;">&times;</button>
+            </div>
+            <div style="padding:24px;">
+                <div id="reviewProductInfo" style="display:flex;gap:12px;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid #f0f0f0;">
+                </div>
+
+                <p style="font-size:14px;color:#333;margin-bottom:8px;font-weight:500;">评分</p>
+                <div class="star-rating" id="starRating">
+                    <span class="star" data-value="1" onclick="setRating(1)">★</span>
+                    <span class="star" data-value="2" onclick="setRating(2)">★</span>
+                    <span class="star" data-value="3" onclick="setRating(3)">★</span>
+                    <span class="star" data-value="4" onclick="setRating(4)">★</span>
+                    <span class="star" data-value="5" onclick="setRating(5)">★</span>
+                </div>
+
+                <p style="font-size:14px;color:#333;margin-bottom:8px;font-weight:500;">评价内容</p>
+                <textarea id="reviewContent" placeholder="分享您的使用感受，帮助其他买家参考..." style="width:100%;min-height:100px;padding:12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
+
+                <label style="display:flex;align-items:center;gap:8px;margin:15px 0;font-size:14px;color:#666;cursor:pointer;">
+                    <input type="checkbox" id="reviewAnonymous" /> 匿名评价
+                </label>
+
+                <button onclick="submitReview()" style="width:100%;padding:14px;background:#007bff;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;">
+                    提交评价
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/order-api.js"></script>
+    <script src="js/product-api.js"></script>
     <script>
         let orderId = 0;
         let orderData = null;
         let selectedPayment = 'alipay';
+        let reviewingItem = null;
+        let reviewRating = 5;
 
         document.addEventListener('DOMContentLoaded', function() {
             if (!Auth.requireLogin()) return;
@@ -92,6 +130,8 @@
                 <a href="products.html">商品</a>
                 <a href="cart.html">🛒 购物车</a>
                 <a href="orders.html">📦 订单</a>
+                <a href="favorites.html">❤️ 收藏</a>
+                <a href="footprints.html">👣 足迹</a>
                 <a href="profile.html">👤 ${user ? user.username : ''}</a>
                 <a href="#" onclick="handleLogout()">退出</a>
             `;
@@ -170,7 +210,18 @@
                                     <h4>${escapeHtml(item.product_name)}</h4>
                                     <div class="product-price-qty">¥${parseFloat(item.price).toFixed(2)} × ${item.quantity}</div>
                                 </div>
-                                <div class="order-product-subtotal">¥${item.subtotal.toFixed(2)}</div>
+                                <div class="order-product-subtotal">
+                                    ¥${item.subtotal.toFixed(2)}
+                                    ${order.status === 3 ? `
+                                        <div style="margin-top:8px;">
+                                            ${item.is_reviewed
+                                                ? '<span style="font-size:12px;color:#52c41a;">✅ 已评价</span>'
+                                                : `<button onclick="showReviewModal(${item.product_id}, '${escapeHtml(item.product_name).replace(/'/g, "\\'")}', '${item.cover_image || ''}', ${item.id})" 
+                                                    style="padding:4px 12px;font-size:12px;background:#fff;border:1px solid #007bff;color:#007bff;border-radius:4px;cursor:pointer;">评价</button>`
+                                            }
+                                        </div>
+                                    ` : ''}
+                                </div>
                             </div>
                         `).join('')}
                         <div style="text-align:right;padding-top:15px;border-top:1px solid #f0f0f0;margin-top:10px;">
@@ -320,6 +371,62 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ========== 评价相关 ==========
+        function showReviewModal(productId, productName, coverImage, orderItemId) {
+            reviewingItem = { productId, productName, coverImage, orderItemId };
+            reviewRating = 5;
+            setRating(5);
+            document.getElementById('reviewContent').value = '';
+            document.getElementById('reviewAnonymous').checked = false;
+
+            document.getElementById('reviewProductInfo').innerHTML = `
+                <div style="width:50px;height:50px;border-radius:6px;overflow:hidden;background:#f5f5f5;flex-shrink:0;">
+                    ${coverImage ? `<img src="${coverImage}" style="width:100%;height:100%;object-fit:cover;" />` : ''}
+                </div>
+                <div>
+                    <div style="font-size:14px;color:#333;font-weight:500;">${productName}</div>
+                </div>
+            `;
+
+            document.getElementById('reviewModal').style.display = 'flex';
+        }
+
+        function hideReviewModal() {
+            document.getElementById('reviewModal').style.display = 'none';
+            reviewingItem = null;
+        }
+
+        function setRating(value) {
+            reviewRating = value;
+            document.querySelectorAll('#starRating .star').forEach((star, i) => {
+                star.classList.toggle('active', i < value);
+            });
+        }
+
+        async function submitReview() {
+            if (!reviewingItem) return;
+
+            const content = document.getElementById('reviewContent').value.trim();
+            const isAnonymous = document.getElementById('reviewAnonymous').checked;
+
+            const data = {
+                product_id: reviewingItem.productId,
+                order_item_id: reviewingItem.orderItemId,
+                rating: reviewRating,
+                content: content,
+                is_anonymous: isAnonymous ? 1 : 0
+            };
+
+            const result = await ProductAPI.addReview(data);
+            if (result.success) {
+                alert('🎉 评价成功！感谢您的反馈');
+                hideReviewModal();
+                loadOrderDetail();
+            } else {
+                alert('评价失败：' + result.message);
+            }
         }
     </script>
 </body>

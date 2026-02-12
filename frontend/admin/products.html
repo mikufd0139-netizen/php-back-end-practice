@@ -21,6 +21,7 @@
         <a href="index.html" class="menu-item">📊 控制台</a>
         <a href="users.html" class="menu-item">👥 用户管理</a>
         <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="brands.html" class="menu-item">🏢 品牌管理</a>
         <a href="products.html" class="menu-item active">📦 商品管理</a>
         <a href="orders.html" class="menu-item">📋 订单管理</a>
     </aside>
@@ -104,6 +105,14 @@
                             </select>
                         </div>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>所属品牌</label>
+                            <select id="productBrand">
+                                <option value="">请选择品牌</option>
+                            </select>
+                        </div>
+                    </div>
                     <div class="form-group">
                         <label>副标题/卖点</label>
                         <input type="text" id="productSubtitle" placeholder="一句话描述商品卖点" />
@@ -166,6 +175,14 @@
                             <div class="image-preview" id="imagePreview">
                                 <span>点击或拖拽上传图片</span>
                             </div>
+                        </div>
+                    </div>
+                    <div class="form-group" id="productImagesGroup" style="display:none;">
+                        <label>商品图片 <small style="color:#999;">（编辑模式可管理多张图片）</small></label>
+                        <div id="productImagesGallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
+                        <div style="margin-top:8px;">
+                            <input type="file" id="galleryImageFile" accept="image/*" onchange="handleGalleryUpload()" style="display:none;" />
+                            <button type="button" class="btn btn-sm" onclick="document.getElementById('galleryImageFile').click()">+ 添加图片</button>
                         </div>
                     </div>
                     <div class="form-group">
@@ -232,10 +249,13 @@
         let currentPage = 1;
         const pageSize = 10;
         let categories = [];
+        let brands = [];
+        let editingProductId = null;
 
         document.addEventListener('DOMContentLoaded', function() {
             loadAdminInfo();
             loadCategories();
+            loadBrands();
             loadProducts();
 
             // 回车搜索
@@ -259,12 +279,23 @@
                 const filterSelect = document.getElementById('filterCategory');
                 const productSelect = document.getElementById('productCategory');
                 
-                // 按 path 排序确保层级正确
                 const sorted = [...categories].sort((a, b) => (a.path || '').localeCompare(b.path || ''));
                 sorted.forEach(cat => {
                     const indent = '　'.repeat((cat.level || 1) - 1);
                     filterSelect.innerHTML += `<option value="${cat.id}">${indent}${escapeHtml(cat.name)}</option>`;
                     productSelect.innerHTML += `<option value="${cat.id}">${indent}${escapeHtml(cat.name)}</option>`;
+                });
+            }
+        }
+
+        // 加载品牌
+        async function loadBrands() {
+            const result = await AdminAPI.getBrandList(true);
+            if (result.success) {
+                brands = result.data;
+                const select = document.getElementById('productBrand');
+                brands.forEach(b => {
+                    select.innerHTML += `<option value="${b.id}">${escapeHtml(b.name)}${b.name_en ? ' (' + escapeHtml(b.name_en) + ')' : ''}</option>`;
                 });
             }
         }
@@ -318,6 +349,7 @@
                     <td>
                         <div class="product-name-cell">
                             <span class="product-name">${escapeHtml(p.name)}</span>
+                            ${p.brand_name ? `<br><small style="color:#999;">${escapeHtml(p.brand_name)}</small>` : ''}
                         </div>
                     </td>
                     <td>${p.category_name || '-'}</td>
@@ -389,8 +421,12 @@
             document.getElementById('productRecommend').value = '0';
             document.getElementById('productNew').value = '0';
             document.getElementById('productHot').value = '0';
+            document.getElementById('productBrand').value = '';
             document.getElementById('coverImageUrl').value = '';
             document.getElementById('imagePreview').innerHTML = '<span>点击或拖拽上传图片</span>';
+            document.getElementById('productImagesGroup').style.display = 'none';
+            document.getElementById('productImagesGallery').innerHTML = '';
+            editingProductId = null;
             document.getElementById('productModal').classList.add('show');
         }
 
@@ -403,14 +439,16 @@
             }
 
             const p = result.data;
+            editingProductId = p.id;
             document.getElementById('modalTitle').textContent = '编辑商品';
             document.getElementById('productId').value = p.id;
             document.getElementById('productName').value = p.name;
             document.getElementById('productCategory').value = p.category_id || '';
+            document.getElementById('productBrand').value = p.brand_id || '';
             document.getElementById('productPrice').value = p.price;
             document.getElementById('productOriginalPrice').value = p.original_price || '';
             document.getElementById('productStock').value = p.stock;
-            document.getElementById('productStock').disabled = true; // 编辑时不能直接改库存
+            document.getElementById('productStock').disabled = true;
             document.getElementById('productStatus').value = p.status;
             document.getElementById('productDescription').value = p.description || '';
             document.getElementById('productSubtitle').value = p.subtitle || '';
@@ -426,7 +464,86 @@
                 document.getElementById('imagePreview').innerHTML = '<span>点击或拖拽上传图片</span>';
             }
 
+            // 显示并加载商品图片
+            document.getElementById('productImagesGroup').style.display = 'block';
+            loadProductImages(p.id);
+
             document.getElementById('productModal').classList.add('show');
+        }
+
+        // 加载商品图片列表
+        async function loadProductImages(productId) {
+            const gallery = document.getElementById('productImagesGallery');
+            gallery.innerHTML = '<span style="color:#999;">加载中...</span>';
+
+            const result = await AdminAPI.getProductImages(productId);
+            if (!result.success) {
+                gallery.innerHTML = '<span style="color:#999;">加载失败</span>';
+                return;
+            }
+
+            if (result.data.length === 0) {
+                gallery.innerHTML = '<span style="color:#999;">暂无图片</span>';
+                return;
+            }
+
+            gallery.innerHTML = result.data.map(img => `
+                <div style="position:relative;width:80px;height:80px;border:2px solid ${img.is_cover ? '#1890ff' : '#eee'};border-radius:6px;overflow:hidden;">
+                    <img src="${img.image_url}" style="width:100%;height:100%;object-fit:cover;" />
+                    <div style="position:absolute;bottom:0;left:0;right:0;display:flex;background:rgba(0,0,0,0.5);">
+                        ${!img.is_cover ? `<button onclick="setCoverImage(${img.id})" style="flex:1;border:none;background:none;color:#fff;font-size:11px;cursor:pointer;padding:2px;" title="设为封面">⭐</button>` : '<span style="flex:1;text-align:center;color:#ffd700;font-size:11px;padding:2px;">封面</span>'}
+                        <button onclick="deleteGalleryImage(${img.id})" style="flex:1;border:none;background:none;color:#ff4d4f;font-size:11px;cursor:pointer;padding:2px;" title="删除">✕</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 上传图片到商品图册
+        async function handleGalleryUpload() {
+            const file = document.getElementById('galleryImageFile').files[0];
+            if (!file || !editingProductId) return;
+
+            const uploadResult = await AdminAPI.uploadImage(file);
+            if (!uploadResult.success) {
+                alert('上传失败：' + uploadResult.message);
+                return;
+            }
+
+            const addResult = await AdminAPI.addProductImage({
+                product_id: editingProductId,
+                image_url: uploadResult.data.url,
+                sort_order: 0,
+                is_cover: 0
+            });
+
+            if (addResult.success) {
+                loadProductImages(editingProductId);
+            } else {
+                alert('添加图片失败：' + addResult.message);
+            }
+
+            document.getElementById('galleryImageFile').value = '';
+        }
+
+        // 设为封面图
+        async function setCoverImage(imageId) {
+            const result = await AdminAPI.setProductImageCover(imageId);
+            if (result.success) {
+                loadProductImages(editingProductId);
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除图册图片
+        async function deleteGalleryImage(imageId) {
+            if (!confirm('确定删除此图片？')) return;
+            const result = await AdminAPI.deleteProductImage(imageId);
+            if (result.success) {
+                loadProductImages(editingProductId);
+            } else {
+                alert(result.message);
+            }
         }
 
         // 图片上传
@@ -452,6 +569,7 @@
         function hideModal() {
             document.getElementById('productModal').classList.remove('show');
             document.getElementById('productStock').disabled = false;
+            editingProductId = null;
         }
 
         // 保存商品
@@ -490,6 +608,10 @@
 
             if (categoryId) data.category_id = parseInt(categoryId);
             if (originalPrice) data.original_price = parseFloat(originalPrice);
+
+            const brandId = document.getElementById('productBrand').value;
+            if (brandId) data.brand_id = parseInt(brandId);
+            else data.brand_id = '';
 
             let result;
             if (id) {
