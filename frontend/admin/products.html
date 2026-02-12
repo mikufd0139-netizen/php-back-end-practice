@@ -22,6 +22,7 @@
         <a href="users.html" class="menu-item">👥 用户管理</a>
         <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
         <a href="brands.html" class="menu-item">🏢 品牌管理</a>
+        <a href="attributes.html" class="menu-item">📋 属性管理</a>
         <a href="products.html" class="menu-item active">📦 商品管理</a>
         <a href="orders.html" class="menu-item">📋 订单管理</a>
     </aside>
@@ -240,6 +241,40 @@
         </div>
     </div>
 
+    <!-- SKU管理弹窗 -->
+    <div class="modal" id="skuModal">
+        <div class="modal-content modal-large" style="max-width:900px;">
+            <div class="modal-header">
+                <h3 id="skuModalTitle">SKU管理</h3>
+                <button class="modal-close" onclick="hideSkuModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+                <div id="skuContent">
+                    <div class="loading">加载中...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="hideSkuModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .sku-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .sku-table th, .sku-table td { padding:8px 10px; border:1px solid #e8e8e8; text-align:left; }
+        .sku-table th { background:#fafafa; font-weight:500; }
+        .sku-table input[type="number"], .sku-table input[type="text"] { width:100%; padding:4px 6px; border:1px solid #d9d9d9; border-radius:4px; font-size:13px; box-sizing:border-box; }
+        .sku-add-form { background:#f9f9f9; border:1px solid #e8e8e8; border-radius:8px; padding:16px; margin-bottom:16px; }
+        .sku-add-form h4 { margin:0 0 12px; font-size:14px; }
+        .sku-form-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+        .sku-form-row .form-group { flex:1; min-width:120px; }
+        .sku-form-row label { display:block; font-size:12px; color:#666; margin-bottom:4px; }
+        .sku-form-row input, .sku-form-row select { width:100%; padding:6px 8px; border:1px solid #d9d9d9; border-radius:4px; font-size:13px; box-sizing:border-box; }
+        .attr-select-group { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+        .attr-select-group label { font-size:13px; color:#333; margin-right:4px; }
+        .attr-select-group select { padding:4px 8px; border:1px solid #d9d9d9; border-radius:4px; font-size:13px; }
+    </style>
+
     <script src="js/admin-api.js"></script>
     <script>
         // 检查登录
@@ -375,6 +410,7 @@
                     <td>${formatDate(p.created_at)}</td>
                     <td>
                         <button class="btn btn-sm btn-primary" onclick="editProduct(${p.id})">编辑</button>
+                        <button class="btn btn-sm" style="background:#722ed1;color:#fff;" onclick="manageSkus(${p.id}, '${escapeHtml(p.name)}', ${p.category_id || 0})">SKU</button>
                         <button class="btn btn-sm btn-success" onclick="manageStock(${p.id})">库存</button>
                         <button class="btn btn-sm ${p.status === 1 ? 'btn-warning' : 'btn-success'}" onclick="toggleStatus(${p.id})">
                             ${p.status === 1 ? '下架' : '上架'}
@@ -724,6 +760,199 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // ========== SKU管理 ==========
+        let skuProductId = null;
+        let skuCategoryId = null;
+        let skuAttributes = [];
+        let skuList = [];
+
+        async function manageSkus(productId, productName, categoryId) {
+            skuProductId = productId;
+            skuCategoryId = categoryId;
+            document.getElementById('skuModalTitle').textContent = `SKU管理 - ${productName}`;
+            document.getElementById('skuModal').classList.add('show');
+            
+            const content = document.getElementById('skuContent');
+            content.innerHTML = '<div class="loading">加载中...</div>';
+
+            // 加载属性和SKU列表
+            const [attrResult, skuResult] = await Promise.all([
+                categoryId ? AdminAPI.getAttributeList(categoryId) : { success: true, data: [] },
+                AdminAPI.getSkuList(productId)
+            ]);
+
+            skuAttributes = attrResult.success ? attrResult.data : [];
+            skuList = skuResult.success ? skuResult.data : [];
+
+            renderSkuPanel();
+        }
+
+        function renderSkuPanel() {
+            const content = document.getElementById('skuContent');
+
+            if (skuAttributes.length === 0) {
+                content.innerHTML = `
+                    <div style="text-align:center;padding:30px;color:#999;">
+                        <p>该商品的分类暂无规格属性</p>
+                        <p style="margin-top:8px;">请先到 <a href="attributes.html" style="color:#1890ff;">属性管理</a> 中为该分类添加属性（如颜色、尺码等）</p>
+                    </div>
+                    ${renderSkuTable()}
+                `;
+                return;
+            }
+
+            // 添加SKU表单
+            let attrSelectHtml = skuAttributes.map(attr => `
+                <div>
+                    <label>${escapeHtml(attr.name)}：</label>
+                    <select id="skuAttr_${attr.id}">
+                        <option value="">请选择</option>
+                        ${attr.values.map(v => `<option value="${v.id}" data-text="${escapeHtml(v.value)}">${escapeHtml(v.value)}</option>`).join('')}
+                    </select>
+                </div>
+            `).join('');
+
+            content.innerHTML = `
+                <div class="sku-add-form">
+                    <h4>➕ 添加SKU</h4>
+                    <div class="attr-select-group">${attrSelectHtml}</div>
+                    <div class="sku-form-row">
+                        <div class="form-group">
+                            <label>价格</label>
+                            <input type="number" id="skuPrice" step="0.01" min="0" placeholder="0.00" />
+                        </div>
+                        <div class="form-group">
+                            <label>库存</label>
+                            <input type="number" id="skuStock" min="0" value="0" />
+                        </div>
+                        <div class="form-group">
+                            <label>封面图URL（可选）</label>
+                            <input type="text" id="skuCover" placeholder="留空使用商品主图" />
+                        </div>
+                        <div class="form-group" style="display:flex;align-items:flex-end;">
+                            <button class="btn btn-primary" onclick="addSku()">添加</button>
+                        </div>
+                    </div>
+                </div>
+                ${renderSkuTable()}
+            `;
+        }
+
+        function renderSkuTable() {
+            if (skuList.length === 0) {
+                return '<div style="text-align:center;padding:20px;color:#999;">暂无SKU数据</div>';
+            }
+
+            const rows = skuList.map(sku => {
+                const attrText = sku.attr_text || (sku.attributes ? sku.attributes.map(a => `${a.attr_name}:${a.value}`).join(' / ') : '-');
+                return `
+                    <tr>
+                        <td>${sku.id}</td>
+                        <td>${escapeHtml(sku.sku_no || '-')}</td>
+                        <td>${escapeHtml(attrText)}</td>
+                        <td>¥${parseFloat(sku.price).toFixed(2)}</td>
+                        <td>${sku.stock}</td>
+                        <td>${sku.locked_stock || 0}</td>
+                        <td>
+                            <span class="tag ${sku.status == 1 ? 'tag-success' : 'tag-danger'}">${sku.status == 1 ? '启用' : '禁用'}</span>
+                        </td>
+                        <td>
+                            ${sku.cover_image ? `<img src="${sku.cover_image}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;" />` : '-'}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="deleteSku(${sku.id})">删除</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            return `
+                <table class="sku-table">
+                    <thead>
+                        <tr>
+                            <th width="50">ID</th>
+                            <th>SKU编号</th>
+                            <th>规格</th>
+                            <th width="90">价格</th>
+                            <th width="60">库存</th>
+                            <th width="60">锁定</th>
+                            <th width="60">状态</th>
+                            <th width="60">图片</th>
+                            <th width="70">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        async function addSku() {
+            if (!skuProductId) return;
+
+            const price = parseFloat(document.getElementById('skuPrice').value);
+            const stock = parseInt(document.getElementById('skuStock').value) || 0;
+            const cover = document.getElementById('skuCover').value.trim();
+
+            if (!price || price <= 0) {
+                alert('请输入有效的价格');
+                return;
+            }
+
+            // 收集选中的属性值
+            const attrValueIds = [];
+            for (const attr of skuAttributes) {
+                const sel = document.getElementById(`skuAttr_${attr.id}`);
+                if (sel && sel.value) {
+                    attrValueIds.push(parseInt(sel.value));
+                }
+            }
+
+            if (skuAttributes.length > 0 && attrValueIds.length === 0) {
+                alert('请至少选择一个规格属性');
+                return;
+            }
+
+            const data = {
+                product_id: skuProductId,
+                price: price,
+                stock: stock,
+                attribute_value_ids: attrValueIds
+            };
+            if (cover) data.cover_image = cover;
+
+            const result = await AdminAPI.addSku(data);
+            if (result.success) {
+                // 刷新SKU列表
+                const skuResult = await AdminAPI.getSkuList(skuProductId);
+                skuList = skuResult.success ? skuResult.data : [];
+                renderSkuPanel();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function deleteSku(skuId) {
+            if (!confirm('确定要删除此SKU吗？')) return;
+            const result = await AdminAPI.deleteSku(skuId);
+            if (result.success) {
+                const skuResult = await AdminAPI.getSkuList(skuProductId);
+                skuList = skuResult.success ? skuResult.data : [];
+                renderSkuPanel();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function hideSkuModal() {
+            document.getElementById('skuModal').classList.remove('show');
+            skuProductId = null;
+            skuCategoryId = null;
+            skuAttributes = [];
+            skuList = [];
+            // 刷新商品列表以更新价格等
+            loadProducts();
         }
     </script>
 </body>

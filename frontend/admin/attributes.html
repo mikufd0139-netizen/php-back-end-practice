@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>属性管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+    <style>
+        .attr-panel { display: flex; gap: 20px; }
+        .attr-panel .left-panel { width: 300px; flex-shrink: 0; }
+        .attr-panel .right-panel { flex: 1; }
+        .category-selector { margin-bottom: 15px; }
+        .category-selector select { width: 100%; padding: 10px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; }
+        .attr-item { background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+        .attr-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .attr-item-header h4 { margin: 0; font-size: 15px; }
+        .attr-item-actions { display: flex; gap: 6px; }
+        .attr-values { display: flex; flex-wrap: wrap; gap: 8px; }
+        .attr-value-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; background: #f0f5ff; border: 1px solid #adc6ff; border-radius: 4px; font-size: 13px; color: #1890ff; }
+        .attr-value-tag .remove-btn { cursor: pointer; color: #999; font-size: 16px; line-height: 1; }
+        .attr-value-tag .remove-btn:hover { color: #ff4d4f; }
+        .add-value-input { display: inline-flex; align-items: center; gap: 4px; }
+        .add-value-input input { width: 100px; padding: 4px 8px; border: 1px dashed #d9d9d9; border-radius: 4px; font-size: 13px; }
+        .add-value-input button { padding: 4px 8px; font-size: 12px; background: #1890ff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .empty-tip { color: #999; text-align: center; padding: 40px; }
+        .inline-edit { display: flex; gap: 6px; align-items: center; }
+        .inline-edit input { padding: 4px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="brands.html" class="menu-item">🏢 品牌管理</a>
+        <a href="attributes.html" class="menu-item active">📋 属性管理</a>
+        <a href="products.html" class="menu-item">📦 商品管理</a>
+        <a href="orders.html" class="menu-item">📋 订单管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>属性管理</h1>
+            <p>管理商品分类的规格属性（如：颜色、尺码、容量等），用于SKU组合</p>
+        </div>
+
+        <div class="attr-panel">
+            <!-- 左侧：选择分类 & 添加属性 -->
+            <div class="left-panel">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 style="margin-bottom:15px;">选择分类</h3>
+                        <div class="category-selector">
+                            <select id="categorySelect" onchange="loadAttributes()">
+                                <option value="">请选择分类</option>
+                            </select>
+                        </div>
+                        <hr style="margin:15px 0;border:none;border-top:1px solid #f0f0f0;" />
+                        <h3 style="margin-bottom:10px;">添加属性</h3>
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <input type="text" id="newAttrName" placeholder="属性名称，如：颜色" style="width:100%;padding:8px;border:1px solid #d9d9d9;border-radius:4px;" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <input type="text" id="newAttrValues" placeholder="属性值（逗号分隔），如：红,蓝,绿" style="width:100%;padding:8px;border:1px solid #d9d9d9;border-radius:4px;" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <input type="number" id="newAttrSort" value="0" min="0" placeholder="排序" style="width:100%;padding:8px;border:1px solid #d9d9d9;border-radius:4px;" />
+                        </div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addAttribute()">+ 添加属性</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：属性列表 -->
+            <div class="right-panel">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="loading" id="loading" style="display:none;">加载中...</div>
+                        <div class="empty-tip" id="emptyTip">请先选择一个分类</div>
+                        <div id="attrList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        // 检查登录
+        if (!AdminAuth.requireLogin()) {}
+
+        let categories = [];
+        let currentCategoryId = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAdminInfo();
+            loadCategories();
+        });
+
+        function loadAdminInfo() {
+            const user = AdminAuth.getUser();
+            if (user) document.getElementById('adminName').textContent = user.username;
+        }
+
+        // 加载分类
+        async function loadCategories() {
+            const result = await AdminAPI.getCategoryList(true, true);
+            if (result.success) {
+                categories = result.data;
+                const select = document.getElementById('categorySelect');
+                const sorted = [...categories].sort((a, b) => (a.path || '').localeCompare(b.path || ''));
+                sorted.forEach(cat => {
+                    const indent = '　'.repeat((cat.level || 1) - 1);
+                    select.innerHTML += `<option value="${cat.id}">${indent}${escapeHtml(cat.name)}</option>`;
+                });
+            }
+        }
+
+        // 加载属性列表
+        async function loadAttributes() {
+            const categoryId = document.getElementById('categorySelect').value;
+            const listEl = document.getElementById('attrList');
+            const emptyTip = document.getElementById('emptyTip');
+            const loading = document.getElementById('loading');
+
+            if (!categoryId) {
+                listEl.innerHTML = '';
+                emptyTip.style.display = 'block';
+                emptyTip.textContent = '请先选择一个分类';
+                currentCategoryId = null;
+                return;
+            }
+
+            currentCategoryId = parseInt(categoryId);
+            emptyTip.style.display = 'none';
+            loading.style.display = 'block';
+            listEl.innerHTML = '';
+
+            const result = await AdminAPI.getAttributeList(categoryId);
+            loading.style.display = 'none';
+
+            if (!result.success) {
+                listEl.innerHTML = `<div class="empty-tip" style="color:#ff4d4f;">${result.message}</div>`;
+                return;
+            }
+
+            const attrs = result.data;
+            if (attrs.length === 0) {
+                emptyTip.style.display = 'block';
+                emptyTip.textContent = '该分类暂无属性，请在左侧添加';
+                return;
+            }
+
+            listEl.innerHTML = attrs.map(attr => `
+                <div class="attr-item" id="attr_${attr.id}">
+                    <div class="attr-item-header">
+                        <h4>
+                            <span id="attrName_${attr.id}">${escapeHtml(attr.name)}</span>
+                            <small style="color:#999;margin-left:8px;">排序: ${attr.sort_order}</small>
+                        </h4>
+                        <div class="attr-item-actions">
+                            <button class="btn btn-sm" onclick="editAttribute(${attr.id}, '${escapeHtml(attr.name)}', ${attr.sort_order})">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteAttribute(${attr.id}, '${escapeHtml(attr.name)}')">删除</button>
+                        </div>
+                    </div>
+                    <div class="attr-values">
+                        ${attr.values.map(v => `
+                            <span class="attr-value-tag">
+                                ${escapeHtml(v.value)}
+                                <span class="remove-btn" onclick="deleteAttrValue(${v.id}, '${escapeHtml(v.value)}')" title="删除">&times;</span>
+                            </span>
+                        `).join('')}
+                        <div class="add-value-input">
+                            <input type="text" id="newVal_${attr.id}" placeholder="新增值" onkeypress="if(event.key==='Enter')addAttrValue(${attr.id})" />
+                            <button onclick="addAttrValue(${attr.id})">+</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 添加属性
+        async function addAttribute() {
+            if (!currentCategoryId) {
+                alert('请先选择分类');
+                return;
+            }
+
+            const name = document.getElementById('newAttrName').value.trim();
+            if (!name) {
+                alert('请输入属性名称');
+                return;
+            }
+
+            const valuesStr = document.getElementById('newAttrValues').value.trim();
+            const sortOrder = parseInt(document.getElementById('newAttrSort').value) || 0;
+            const values = valuesStr ? valuesStr.split(/[,，]/).map(v => v.trim()).filter(v => v) : [];
+
+            const result = await AdminAPI.addAttribute({
+                category_id: currentCategoryId,
+                name: name,
+                sort_order: sortOrder,
+                values: values
+            });
+
+            if (result.success) {
+                document.getElementById('newAttrName').value = '';
+                document.getElementById('newAttrValues').value = '';
+                document.getElementById('newAttrSort').value = '0';
+                loadAttributes();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 编辑属性
+        async function editAttribute(id, name, sortOrder) {
+            const newName = prompt('修改属性名称', name);
+            if (newName === null) return;
+            if (!newName.trim()) { alert('名称不能为空'); return; }
+
+            const newSort = prompt('修改排序值', sortOrder);
+            if (newSort === null) return;
+
+            const result = await AdminAPI.updateAttribute({
+                id: id,
+                name: newName.trim(),
+                sort_order: parseInt(newSort) || 0
+            });
+
+            if (result.success) {
+                loadAttributes();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除属性
+        async function deleteAttribute(id, name) {
+            if (!confirm(`确定要删除属性「${name}」及其所有属性值吗？\n\n⚠️ 如果有SKU引用了此属性，将无法删除。`)) return;
+
+            const result = await AdminAPI.deleteAttribute(id);
+            if (result.success) {
+                loadAttributes();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 添加属性值
+        async function addAttrValue(attrId) {
+            const input = document.getElementById(`newVal_${attrId}`);
+            const value = input.value.trim();
+            if (!value) return;
+
+            const result = await AdminAPI.addAttributeValue({
+                attribute_id: attrId,
+                value: value
+            });
+
+            if (result.success) {
+                input.value = '';
+                loadAttributes();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 删除属性值
+        async function deleteAttrValue(valueId, valueName) {
+            if (!confirm(`确定要删除属性值「${valueName}」吗？`)) return;
+
+            const result = await AdminAPI.deleteAttributeValue(valueId);
+            if (result.success) {
+                loadAttributes();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        // 退出登录
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        // HTML转义
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

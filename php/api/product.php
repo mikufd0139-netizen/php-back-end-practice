@@ -1,6 +1,6 @@
 <?php
 /**
- * 商品模块统一入口 - 包含分类、品牌、商品、商品图片、库存、评价、图片上传
+ * 商品模块统一入口 - 包含分类、品牌、商品、商品图片、库存、评价、属性、SKU、图片上传
  * 
  * === 分类接口 ===
  * GET    ?action=category_list              获取分类列表(树形)
@@ -18,7 +18,7 @@
  * 
  * === 商品接口 ===
  * GET    ?action=product_list               商品列表(支持搜索/筛选/分页)
- * GET    ?action=product_detail&id=1        商品详情(含图片/品牌/评价统计)
+ * GET    ?action=product_detail&id=1        商品详情(含图片/品牌/评价/SKU)
  * POST   ?action=product_add                添加商品 (管理员)
  * POST   ?action=product_update             更新商品 (管理员)
  * POST   ?action=product_delete             删除商品 (管理员)
@@ -30,6 +30,22 @@
  * POST   ?action=product_image_delete             删除商品图片 (管理员)
  * POST   ?action=product_image_sort               更新图片排序 (管理员)
  * POST   ?action=product_image_set_cover          设为封面图 (管理员)
+ * 
+ * === 商品属性接口 ===
+ * GET    ?action=attribute_list&category_id=1  获取分类属性列表 (含属性值)
+ * POST   ?action=attribute_add                 添加属性 (管理员)
+ * POST   ?action=attribute_update              更新属性 (管理员)
+ * POST   ?action=attribute_delete              删除属性 (管理员)
+ * POST   ?action=attribute_value_add           添加属性值 (管理员)
+ * POST   ?action=attribute_value_update        更新属性值 (管理员)
+ * POST   ?action=attribute_value_delete        删除属性值 (管理员)
+ * 
+ * === SKU 接口 ===
+ * GET    ?action=sku_list&product_id=1      获取商品SKU列表
+ * POST   ?action=sku_add                    添加SKU (管理员)
+ * POST   ?action=sku_update                 更新SKU (管理员)
+ * POST   ?action=sku_delete                 删除SKU (管理员)
+ * POST   ?action=sku_batch_save             批量保存SKU (管理员)
  * 
  * === 库存接口 ===
  * GET    ?action=inventory_get&product_id=1 获取库存信息
@@ -151,6 +167,44 @@ switch ($action) {
     // 图片上传
     case 'upload_image':
         handleUploadImage();
+        break;
+    // 属性接口
+    case 'attribute_list':
+        handleAttributeList();
+        break;
+    case 'attribute_add':
+        handleAttributeAdd();
+        break;
+    case 'attribute_update':
+        handleAttributeUpdate();
+        break;
+    case 'attribute_delete':
+        handleAttributeDelete();
+        break;
+    case 'attribute_value_add':
+        handleAttributeValueAdd();
+        break;
+    case 'attribute_value_update':
+        handleAttributeValueUpdate();
+        break;
+    case 'attribute_value_delete':
+        handleAttributeValueDelete();
+        break;
+    // SKU接口
+    case 'sku_list':
+        handleSkuList();
+        break;
+    case 'sku_add':
+        handleSkuAdd();
+        break;
+    case 'sku_update':
+        handleSkuUpdate();
+        break;
+    case 'sku_delete':
+        handleSkuDelete();
+        break;
+    case 'sku_batch_save':
+        handleSkuBatchSave();
         break;
     default:
         Response::error('无效的操作', 400);
@@ -983,6 +1037,60 @@ function handleProductList(): void
         $stmt = $pdo->prepare("SELECT id FROM user_favorites WHERE user_id = ? AND product_id = ?");
         $stmt->execute([Auth::getUserId(), $id]);
         $product['is_favorited'] = (bool)$stmt->fetch();
+    }
+
+    // 获取SKU列表
+    $stmt = $pdo->prepare("SELECT * FROM product_skus WHERE product_id = ? AND status = 1 ORDER BY id ASC");
+    $stmt->execute([$id]);
+    $skus = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($skus as &$sku) {
+        $sku['id'] = (int)$sku['id'];
+        $sku['price'] = (float)$sku['price'];
+        $sku['original_price'] = $sku['original_price'] ? (float)$sku['original_price'] : null;
+        $sku['stock'] = (int)$sku['stock'];
+        $sku['locked_stock'] = (int)$sku['locked_stock'];
+        $sku['available_stock'] = $sku['stock'] - $sku['locked_stock'];
+        $sku['sales_count'] = (int)$sku['sales_count'];
+
+        // SKU属性关联
+        $stmt2 = $pdo->prepare("SELECT sav.attribute_id, sav.attribute_value_id,
+                                       pa.name as attribute_name, av.value as attribute_value
+                                FROM sku_attribute_values sav
+                                JOIN product_attributes pa ON sav.attribute_id = pa.id
+                                JOIN attribute_values av ON sav.attribute_value_id = av.id
+                                WHERE sav.sku_id = ?
+                                ORDER BY pa.sort_order ASC");
+        $stmt2->execute([$sku['id']]);
+        $sku['attributes'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($sku['attributes'] as &$a) {
+            $a['attribute_id'] = (int)$a['attribute_id'];
+            $a['attribute_value_id'] = (int)$a['attribute_value_id'];
+        }
+        unset($a);
+    }
+    unset($sku);
+    $product['skus'] = $skus;
+
+    // 获取可选属性（从SKU中提取）
+    $product['spec_list'] = [];
+    if (!empty($skus)) {
+        $specMap = []; // attribute_id => {name, values: [{id, value}]}
+        foreach ($skus as $sku) {
+            foreach ($sku['attributes'] as $a) {
+                $aid = $a['attribute_id'];
+                if (!isset($specMap[$aid])) {
+                    $specMap[$aid] = ['attribute_id' => $aid, 'name' => $a['attribute_name'], 'values' => []];
+                }
+                $vid = $a['attribute_value_id'];
+                $specMap[$aid]['values'][$vid] = ['id' => $vid, 'value' => $a['attribute_value']];
+            }
+        }
+        foreach ($specMap as &$spec) {
+            $spec['values'] = array_values($spec['values']);
+        }
+        unset($spec);
+        $product['spec_list'] = array_values($specMap);
     }
 
     Response::success($product, '获取成功');
@@ -2025,4 +2133,686 @@ function handleUploadImage(): void
         'size' => $file['size'],
         'mime_type' => $mimeType
     ], '上传成功');
+}
+
+// ==================== 商品属性管理 ====================
+
+/**
+ * 获取分类属性列表 (含属性值)
+ */
+function handleAttributeList(): void
+{
+    Request::allowMethods('GET');
+
+    $categoryId = (int)($_GET['category_id'] ?? 0);
+    if ($categoryId <= 0) {
+        Response::error('分类ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_attributes WHERE category_id = ? ORDER BY sort_order ASC, id ASC");
+    $stmt->execute([$categoryId]);
+    $attributes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($attributes as &$attr) {
+        $attr['id'] = (int)$attr['id'];
+        $attr['category_id'] = (int)$attr['category_id'];
+        $attr['input_type'] = (int)$attr['input_type'];
+        $attr['sort_order'] = (int)$attr['sort_order'];
+        $attr['status'] = (int)$attr['status'];
+
+        // 获取属性值
+        $stmt = $pdo->prepare("SELECT * FROM attribute_values WHERE attribute_id = ? ORDER BY sort_order ASC, id ASC");
+        $stmt->execute([$attr['id']]);
+        $attr['values'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($attr['values'] as &$val) {
+            $val['id'] = (int)$val['id'];
+            $val['attribute_id'] = (int)$val['attribute_id'];
+            $val['sort_order'] = (int)$val['sort_order'];
+        }
+        unset($val);
+    }
+    unset($attr);
+
+    Response::success($attributes, '获取成功');
+}
+
+/**
+ * 添加属性 (管理员)
+ */
+function handleAttributeAdd(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $categoryId = (int)Request::input('category_id', 0);
+    $name = trim(Request::input('name', ''));
+    $inputType = (int)Request::input('input_type', 1);
+    $sortOrder = (int)Request::input('sort_order', 0);
+    $values = Request::input('values', []); // 初始属性值数组
+
+    if ($categoryId <= 0) {
+        Response::error('分类ID无效', 400);
+    }
+    if (empty($name)) {
+        Response::error('属性名称不能为空', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查分类是否存在
+    $stmt = $pdo->prepare("SELECT id FROM categories WHERE id = ?");
+    $stmt->execute([$categoryId]);
+    if (!$stmt->fetch()) {
+        Response::error('分类不存在', 404);
+    }
+
+    // 检查同分类下是否重名
+    $stmt = $pdo->prepare("SELECT id FROM product_attributes WHERE category_id = ? AND name = ?");
+    $stmt->execute([$categoryId, $name]);
+    if ($stmt->fetch()) {
+        Response::error('该分类下已存在同名属性', 409);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO product_attributes (category_id, name, input_type, sort_order) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$categoryId, $name, $inputType, $sortOrder]);
+        $attrId = (int)$pdo->lastInsertId();
+
+        // 如果传了初始属性值
+        if (is_array($values) && !empty($values)) {
+            $valStmt = $pdo->prepare("INSERT INTO attribute_values (attribute_id, value, sort_order) VALUES (?, ?, ?)");
+            foreach ($values as $i => $v) {
+                $val = is_string($v) ? trim($v) : trim($v['value'] ?? '');
+                $order = is_array($v) ? (int)($v['sort_order'] ?? $i) : $i;
+                if (!empty($val)) {
+                    $valStmt->execute([$attrId, $val, $order]);
+                }
+            }
+        }
+
+        $pdo->commit();
+        Response::success(['id' => $attrId], '属性添加成功', 201);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        Response::error('添加失败: ' . $e->getMessage(), 500);
+    }
+}
+
+/**
+ * 更新属性 (管理员)
+ */
+function handleAttributeUpdate(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    $name = Request::input('name');
+    $inputType = Request::input('input_type');
+    $sortOrder = Request::input('sort_order');
+    $status = Request::input('status');
+
+    if ($id <= 0) {
+        Response::error('属性ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_attributes WHERE id = ?");
+    $stmt->execute([$id]);
+    $attr = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$attr) {
+        Response::error('属性不存在', 404);
+    }
+
+    $updates = [];
+    $params = [];
+
+    if ($name !== null) {
+        $name = trim($name);
+        if (empty($name)) {
+            Response::error('属性名称不能为空', 400);
+        }
+        $stmt = $pdo->prepare("SELECT id FROM product_attributes WHERE category_id = ? AND name = ? AND id != ?");
+        $stmt->execute([$attr['category_id'], $name, $id]);
+        if ($stmt->fetch()) {
+            Response::error('该分类下已存在同名属性', 409);
+        }
+        $updates[] = "name = ?";
+        $params[] = $name;
+    }
+    if ($inputType !== null) {
+        $updates[] = "input_type = ?";
+        $params[] = (int)$inputType;
+    }
+    if ($sortOrder !== null) {
+        $updates[] = "sort_order = ?";
+        $params[] = (int)$sortOrder;
+    }
+    if ($status !== null) {
+        $updates[] = "status = ?";
+        $params[] = (int)$status;
+    }
+
+    if (empty($updates)) {
+        Response::error('没有提供任何更新字段', 400);
+    }
+
+    $params[] = $id;
+    $stmt = $pdo->prepare("UPDATE product_attributes SET " . implode(', ', $updates) . " WHERE id = ?");
+    $stmt->execute($params);
+
+    Response::success(null, '属性更新成功');
+}
+
+/**
+ * 删除属性 (管理员) — 级联删除属性值
+ */
+function handleAttributeDelete(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('属性ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT id FROM product_attributes WHERE id = ?");
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) {
+        Response::error('属性不存在', 404);
+    }
+
+    // 检查是否有SKU关联使用此属性
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM sku_attribute_values WHERE attribute_id = ?");
+    $stmt->execute([$id]);
+    if ($stmt->fetchColumn() > 0) {
+        Response::error('该属性已被SKU使用，无法删除。请先删除关联的SKU', 400);
+    }
+
+    // 级联删除属性值(外键ON DELETE CASCADE 会自动处理)
+    $stmt = $pdo->prepare("DELETE FROM product_attributes WHERE id = ?");
+    $stmt->execute([$id]);
+
+    Response::success(null, '属性删除成功');
+}
+
+/**
+ * 添加属性值
+ */
+function handleAttributeValueAdd(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $attributeId = (int)Request::input('attribute_id', 0);
+    $value = trim(Request::input('value', ''));
+    $sortOrder = (int)Request::input('sort_order', 0);
+
+    if ($attributeId <= 0) {
+        Response::error('属性ID无效', 400);
+    }
+    if (empty($value)) {
+        Response::error('属性值不能为空', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查属性是否存在
+    $stmt = $pdo->prepare("SELECT id FROM product_attributes WHERE id = ?");
+    $stmt->execute([$attributeId]);
+    if (!$stmt->fetch()) {
+        Response::error('属性不存在', 404);
+    }
+
+    // 检查同属性下是否重复
+    $stmt = $pdo->prepare("SELECT id FROM attribute_values WHERE attribute_id = ? AND value = ?");
+    $stmt->execute([$attributeId, $value]);
+    if ($stmt->fetch()) {
+        Response::error('该属性值已存在', 409);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO attribute_values (attribute_id, value, sort_order) VALUES (?, ?, ?)");
+    $stmt->execute([$attributeId, $value, $sortOrder]);
+
+    Response::success(['id' => (int)$pdo->lastInsertId()], '属性值添加成功', 201);
+}
+
+/**
+ * 更新属性值
+ */
+function handleAttributeValueUpdate(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    $value = Request::input('value');
+    $sortOrder = Request::input('sort_order');
+
+    if ($id <= 0) {
+        Response::error('属性值ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM attribute_values WHERE id = ?");
+    $stmt->execute([$id]);
+    $attrVal = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$attrVal) {
+        Response::error('属性值不存在', 404);
+    }
+
+    $updates = [];
+    $params = [];
+
+    if ($value !== null) {
+        $value = trim($value);
+        if (empty($value)) {
+            Response::error('属性值不能为空', 400);
+        }
+        $stmt = $pdo->prepare("SELECT id FROM attribute_values WHERE attribute_id = ? AND value = ? AND id != ?");
+        $stmt->execute([$attrVal['attribute_id'], $value, $id]);
+        if ($stmt->fetch()) {
+            Response::error('该属性值已存在', 409);
+        }
+        $updates[] = "value = ?";
+        $params[] = $value;
+    }
+    if ($sortOrder !== null) {
+        $updates[] = "sort_order = ?";
+        $params[] = (int)$sortOrder;
+    }
+
+    if (empty($updates)) {
+        Response::error('没有提供任何更新字段', 400);
+    }
+
+    $params[] = $id;
+    $stmt = $pdo->prepare("UPDATE attribute_values SET " . implode(', ', $updates) . " WHERE id = ?");
+    $stmt->execute($params);
+
+    Response::success(null, '属性值更新成功');
+}
+
+/**
+ * 删除属性值
+ */
+function handleAttributeValueDelete(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('属性值ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT id FROM attribute_values WHERE id = ?");
+    $stmt->execute([$id]);
+    if (!$stmt->fetch()) {
+        Response::error('属性值不存在', 404);
+    }
+
+    // 检查是否被SKU使用
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM sku_attribute_values WHERE attribute_value_id = ?");
+    $stmt->execute([$id]);
+    if ($stmt->fetchColumn() > 0) {
+        Response::error('该属性值已被SKU使用，无法删除', 400);
+    }
+
+    $stmt = $pdo->prepare("DELETE FROM attribute_values WHERE id = ?");
+    $stmt->execute([$id]);
+
+    Response::success(null, '属性值删除成功');
+}
+
+// ==================== SKU 管理 ====================
+
+/**
+ * 获取商品SKU列表
+ */
+function handleSkuList(): void
+{
+    Request::allowMethods('GET');
+
+    $productId = (int)($_GET['product_id'] ?? 0);
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_skus WHERE product_id = ? ORDER BY id ASC");
+    $stmt->execute([$productId]);
+    $skus = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($skus as &$sku) {
+        $sku['id'] = (int)$sku['id'];
+        $sku['product_id'] = (int)$sku['product_id'];
+        $sku['price'] = (float)$sku['price'];
+        $sku['original_price'] = $sku['original_price'] ? (float)$sku['original_price'] : null;
+        $sku['stock'] = (int)$sku['stock'];
+        $sku['locked_stock'] = (int)$sku['locked_stock'];
+        $sku['available_stock'] = $sku['stock'] - $sku['locked_stock'];
+        $sku['sales_count'] = (int)$sku['sales_count'];
+        $sku['status'] = (int)$sku['status'];
+
+        // 获取SKU的属性值关联
+        $stmt2 = $pdo->prepare("SELECT sav.id, sav.attribute_id, sav.attribute_value_id,
+                                       pa.name as attribute_name, av.value as attribute_value
+                                FROM sku_attribute_values sav
+                                JOIN product_attributes pa ON sav.attribute_id = pa.id
+                                JOIN attribute_values av ON sav.attribute_value_id = av.id
+                                WHERE sav.sku_id = ?
+                                ORDER BY pa.sort_order ASC, pa.id ASC");
+        $stmt2->execute([$sku['id']]);
+        $sku['attributes'] = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($sku['attributes'] as &$a) {
+            $a['id'] = (int)$a['id'];
+            $a['attribute_id'] = (int)$a['attribute_id'];
+            $a['attribute_value_id'] = (int)$a['attribute_value_id'];
+        }
+        unset($a);
+    }
+    unset($sku);
+
+    Response::success($skus, '获取成功');
+}
+
+/**
+ * 添加SKU (管理员)
+ */
+function handleSkuAdd(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $productId = (int)Request::input('product_id', 0);
+    $skuNo = trim(Request::input('sku_no', ''));
+    $attrText = trim(Request::input('attr_text', ''));
+    $price = Request::input('price', '');
+    $originalPrice = Request::input('original_price', '');
+    $coverImage = trim(Request::input('cover_image', ''));
+    $stock = (int)Request::input('stock', 0);
+    $attributeValues = Request::input('attribute_values', []); // [{attribute_id, attribute_value_id}, ...]
+
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+    if (empty($attrText)) {
+        Response::error('规格描述不能为空', 400);
+    }
+    if ($price === '' || !is_numeric($price) || $price < 0) {
+        Response::error('请输入有效的价格', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查商品是否存在
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ?");
+    $stmt->execute([$productId]);
+    if (!$stmt->fetch()) {
+        Response::error('商品不存在', 404);
+    }
+
+    // 自动生成SKU编号
+    if (empty($skuNo)) {
+        $skuNo = 'SKU' . date('YmdHis') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+    }
+
+    // 检查SKU编号唯一性
+    $stmt = $pdo->prepare("SELECT id FROM product_skus WHERE sku_no = ?");
+    $stmt->execute([$skuNo]);
+    if ($stmt->fetch()) {
+        Response::error('SKU编号已存在', 409);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO product_skus (product_id, sku_no, attr_text, price, original_price, cover_image, stock) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([
+            $productId,
+            $skuNo,
+            $attrText,
+            (float)$price,
+            ($originalPrice !== '' && $originalPrice !== null) ? (float)$originalPrice : null,
+            $coverImage ?: null,
+            $stock
+        ]);
+        $skuId = (int)$pdo->lastInsertId();
+
+        // 关联属性值
+        if (is_array($attributeValues) && !empty($attributeValues)) {
+            $avStmt = $pdo->prepare("INSERT INTO sku_attribute_values (sku_id, attribute_id, attribute_value_id) VALUES (?, ?, ?)");
+            foreach ($attributeValues as $av) {
+                $avStmt->execute([$skuId, (int)$av['attribute_id'], (int)$av['attribute_value_id']]);
+            }
+        }
+
+        $pdo->commit();
+        Response::success(['id' => $skuId, 'sku_no' => $skuNo], 'SKU添加成功', 201);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        Response::error('添加失败: ' . $e->getMessage(), 500);
+    }
+}
+
+/**
+ * 更新SKU (管理员)
+ */
+function handleSkuUpdate(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('SKU ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT * FROM product_skus WHERE id = ?");
+    $stmt->execute([$id]);
+    $sku = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$sku) {
+        Response::error('SKU不存在', 404);
+    }
+
+    $updates = [];
+    $params = [];
+
+    $attrText = Request::input('attr_text');
+    $price = Request::input('price');
+    $originalPrice = Request::input('original_price');
+    $coverImage = Request::input('cover_image');
+    $stock = Request::input('stock');
+    $status = Request::input('status');
+    $attributeValues = Request::input('attribute_values');
+
+    if ($attrText !== null) {
+        $updates[] = "attr_text = ?";
+        $params[] = trim($attrText);
+    }
+    if ($price !== null) {
+        if (!is_numeric($price) || $price < 0) {
+            Response::error('价格无效', 400);
+        }
+        $updates[] = "price = ?";
+        $params[] = (float)$price;
+    }
+    if ($originalPrice !== null) {
+        $updates[] = "original_price = ?";
+        $params[] = ($originalPrice !== '' && is_numeric($originalPrice)) ? (float)$originalPrice : null;
+    }
+    if ($coverImage !== null) {
+        $updates[] = "cover_image = ?";
+        $params[] = trim($coverImage) ?: null;
+    }
+    if ($stock !== null) {
+        $updates[] = "stock = ?";
+        $params[] = (int)$stock;
+    }
+    if ($status !== null) {
+        $updates[] = "status = ?";
+        $params[] = (int)$status;
+    }
+
+    $pdo->beginTransaction();
+    try {
+        if (!empty($updates)) {
+            $params[] = $id;
+            $stmt = $pdo->prepare("UPDATE product_skus SET " . implode(', ', $updates) . " WHERE id = ?");
+            $stmt->execute($params);
+        }
+
+        // 更新属性值关联
+        if ($attributeValues !== null && is_array($attributeValues)) {
+            $pdo->prepare("DELETE FROM sku_attribute_values WHERE sku_id = ?")->execute([$id]);
+            $avStmt = $pdo->prepare("INSERT INTO sku_attribute_values (sku_id, attribute_id, attribute_value_id) VALUES (?, ?, ?)");
+            foreach ($attributeValues as $av) {
+                $avStmt->execute([$id, (int)$av['attribute_id'], (int)$av['attribute_value_id']]);
+            }
+        }
+
+        $pdo->commit();
+        Response::success(null, 'SKU更新成功');
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        Response::error('更新失败: ' . $e->getMessage(), 500);
+    }
+}
+
+/**
+ * 删除SKU (管理员)
+ */
+function handleSkuDelete(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $id = (int)Request::input('id', 0);
+    if ($id <= 0) {
+        Response::error('SKU ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    $stmt = $pdo->prepare("SELECT id, locked_stock FROM product_skus WHERE id = ?");
+    $stmt->execute([$id]);
+    $sku = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$sku) {
+        Response::error('SKU不存在', 404);
+    }
+
+    if ((int)$sku['locked_stock'] > 0) {
+        Response::error('该SKU有锁定库存，无法删除', 400);
+    }
+
+    // 级联删除(外键ON DELETE CASCADE会删除sku_attribute_values)
+    $stmt = $pdo->prepare("DELETE FROM product_skus WHERE id = ?");
+    $stmt->execute([$id]);
+
+    Response::success(null, 'SKU删除成功');
+}
+
+/**
+ * 批量保存SKU (管理员) — 用于一次性保存商品的所有SKU组合
+ */
+function handleSkuBatchSave(): void
+{
+    Request::allowMethods('POST');
+    requireAdmin();
+
+    $productId = (int)Request::input('product_id', 0);
+    $skuList = Request::input('sku_list', []);
+
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+
+    $pdo = getDB();
+
+    // 检查商品是否存在
+    $stmt = $pdo->prepare("SELECT id FROM products WHERE id = ?");
+    $stmt->execute([$productId]);
+    if (!$stmt->fetch()) {
+        Response::error('商品不存在', 404);
+    }
+
+    $pdo->beginTransaction();
+    try {
+        // 获取现有SKU中有锁定库存的
+        $stmt = $pdo->prepare("SELECT id FROM product_skus WHERE product_id = ? AND locked_stock > 0");
+        $stmt->execute([$productId]);
+        $lockedSkuIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // 删除没有锁定库存的旧SKU
+        if (empty($lockedSkuIds)) {
+            $pdo->prepare("DELETE FROM product_skus WHERE product_id = ?")->execute([$productId]);
+        } else {
+            $placeholders = implode(',', array_fill(0, count($lockedSkuIds), '?'));
+            $params = array_merge([$productId], $lockedSkuIds);
+            $pdo->prepare("DELETE FROM product_skus WHERE product_id = ? AND id NOT IN ($placeholders)")->execute($params);
+        }
+
+        // 插入新的SKU
+        $skuStmt = $pdo->prepare("INSERT INTO product_skus (product_id, sku_no, attr_text, price, original_price, cover_image, stock) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $avStmt = $pdo->prepare("INSERT INTO sku_attribute_values (sku_id, attribute_id, attribute_value_id) VALUES (?, ?, ?)");
+
+        $savedCount = 0;
+        foreach ($skuList as $item) {
+            $attrText = trim($item['attr_text'] ?? '');
+            $price = $item['price'] ?? '';
+            if (empty($attrText) || $price === '' || !is_numeric($price)) continue;
+
+            $skuNo = trim($item['sku_no'] ?? '');
+            if (empty($skuNo)) {
+                $skuNo = 'SKU' . date('YmdHis') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+            }
+
+            $skuStmt->execute([
+                $productId,
+                $skuNo,
+                $attrText,
+                (float)$price,
+                (!empty($item['original_price']) && is_numeric($item['original_price'])) ? (float)$item['original_price'] : null,
+                trim($item['cover_image'] ?? '') ?: null,
+                (int)($item['stock'] ?? 0)
+            ]);
+            $skuId = (int)$pdo->lastInsertId();
+
+            // 属性值关联
+            if (!empty($item['attribute_values']) && is_array($item['attribute_values'])) {
+                foreach ($item['attribute_values'] as $av) {
+                    $avStmt->execute([$skuId, (int)$av['attribute_id'], (int)$av['attribute_value_id']]);
+                }
+            }
+            $savedCount++;
+        }
+
+        // 更新SPU价格范围：取SKU最低价作为SPU价格
+        $stmt = $pdo->prepare("SELECT MIN(price) as min_price, MIN(original_price) as min_original_price FROM product_skus WHERE product_id = ? AND status = 1");
+        $stmt->execute([$productId]);
+        $priceRange = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($priceRange && $priceRange['min_price'] !== null) {
+            $pdo->prepare("UPDATE products SET price = ?, original_price = ? WHERE id = ?")
+                ->execute([$priceRange['min_price'], $priceRange['min_original_price'], $productId]);
+        }
+
+        $pdo->commit();
+        Response::success(['saved_count' => $savedCount], "批量保存成功，共保存 {$savedCount} 个SKU");
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        Response::error('批量保存失败: ' . $e->getMessage(), 500);
+    }
 }

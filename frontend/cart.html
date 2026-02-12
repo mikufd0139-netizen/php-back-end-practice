@@ -94,6 +94,7 @@
                                 </div>
                                 <div class="cart-item-info">
                                     <h3>${escapeHtml(item.name)}</h3>
+                                    ${item.sku_attr_text ? `<div style="font-size:12px;color:#888;margin:4px 0;background:#f5f5f5;display:inline-block;padding:2px 8px;border-radius:3px;">${escapeHtml(item.sku_attr_text)}</div>` : ''}
                                     <div class="cart-item-price">¥${item.price.toFixed(2)}</div>
                                     ${!item.is_valid ? '<div class="cart-item-status">⚠️ 商品已失效</div>' : ''}
                                 </div>

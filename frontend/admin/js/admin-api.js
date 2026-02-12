@@ -237,6 +237,58 @@ const AdminAPI = {
 
     async updateOrderStatus(orderId, status) {
         return this.request(this.orderURL, 'admin_order_update_status', 'POST', { order_id: orderId, status: status });
+    },
+
+    // ========== 属性管理 ==========
+
+    async getAttributeList(categoryId) {
+        return this.request(this.productURL, 'attribute_list', 'GET', null, { category_id: categoryId });
+    },
+
+    async addAttribute(data) {
+        return this.request(this.productURL, 'attribute_add', 'POST', data);
+    },
+
+    async updateAttribute(data) {
+        return this.request(this.productURL, 'attribute_update', 'POST', data);
+    },
+
+    async deleteAttribute(id) {
+        return this.request(this.productURL, 'attribute_delete', 'POST', { id });
+    },
+
+    async addAttributeValue(data) {
+        return this.request(this.productURL, 'attribute_value_add', 'POST', data);
+    },
+
+    async updateAttributeValue(data) {
+        return this.request(this.productURL, 'attribute_value_update', 'POST', data);
+    },
+
+    async deleteAttributeValue(id) {
+        return this.request(this.productURL, 'attribute_value_delete', 'POST', { id });
+    },
+
+    // ========== SKU管理 ==========
+
+    async getSkuList(productId) {
+        return this.request(this.productURL, 'sku_list', 'GET', null, { product_id: productId });
+    },
+
+    async addSku(data) {
+        return this.request(this.productURL, 'sku_add', 'POST', data);
+    },
+
+    async updateSku(data) {
+        return this.request(this.productURL, 'sku_update', 'POST', data);
+    },
+
+    async deleteSku(id) {
+        return this.request(this.productURL, 'sku_delete', 'POST', { id });
+    },
+
+    async batchSaveSku(productId, skuList) {
+        return this.request(this.productURL, 'sku_batch_save', 'POST', { product_id: productId, sku_list: skuList });
     }
 };
 

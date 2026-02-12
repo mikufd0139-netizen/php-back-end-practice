@@ -6,6 +6,18 @@
     <title>商品详情 - Shop</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/product.css">
+    <style>
+        .sku-selector { margin: 15px 0; padding: 15px; background: #fafafa; border-radius: 8px; }
+        .sku-selector h4 { margin: 0 0 10px; font-size: 14px; color: #333; }
+        .spec-group { margin-bottom: 12px; }
+        .spec-group .spec-label { font-size: 13px; color: #666; margin-bottom: 6px; }
+        .spec-group .spec-values { display: flex; flex-wrap: wrap; gap: 8px; }
+        .spec-btn { padding: 6px 16px; border: 1px solid #d9d9d9; border-radius: 4px; background: #fff; font-size: 13px; cursor: pointer; transition: all 0.2s; }
+        .spec-btn:hover { border-color: #1890ff; color: #1890ff; }
+        .spec-btn.active { border-color: #1890ff; background: #e6f7ff; color: #1890ff; font-weight: 500; }
+        .spec-btn.disabled { opacity: 0.4; cursor: not-allowed; border-color: #d9d9d9; color: #999; }
+        .sku-selected-info { margin-top: 10px; padding: 8px 12px; background: #fff; border-radius: 4px; font-size: 13px; color: #666; }
+    </style>
 </head>
 <body>
     <nav class="navbar">
@@ -90,6 +102,8 @@
         // 当前商品数据
         let currentProduct = null;
         let currentImageIndex = 0;
+        let selectedSkuId = null;
+        let selectedSpecs = {};  // { attr_name: value }
 
         function renderProductDetail(product) {
             currentProduct = product;
@@ -171,8 +185,25 @@
 
                         <div class="detail-stock">
                             <span class="stock-label">库存状态</span>
-                            ${stockStatus}
+                            <span id="stockStatusText">${stockStatus}</span>
                         </div>
+
+                        ${product.spec_list && product.spec_list.length > 0 ? `
+                        <div class="sku-selector" id="skuSelector">
+                            <h4>选择规格</h4>
+                            ${product.spec_list.map(spec => `
+                                <div class="spec-group">
+                                    <div class="spec-label">${escapeHtml(spec.attr_name)}：</div>
+                                    <div class="spec-values">
+                                        ${spec.values.map(v => `
+                                            <button class="spec-btn" data-attr="${escapeHtml(spec.attr_name)}" data-value="${escapeHtml(v)}" onclick="selectSpec(this, '${escapeHtml(spec.attr_name)}', '${escapeHtml(v)}')">${escapeHtml(v)}</button>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `).join('')}
+                            <div class="sku-selected-info" id="skuSelectedInfo">请选择规格</div>
+                        </div>
+                        ` : ''}
 
                         <div class="detail-actions">
                             <div class="quantity-selector">
@@ -180,7 +211,7 @@
                                 <input type="number" id="quantity" value="1" min="1" max="${product.available_stock}" />
                                 <button class="qty-btn" onclick="changeQty(1)">+</button>
                             </div>
-                            <button class="btn btn-primary btn-add-cart" 
+                            <button class="btn btn-primary btn-add-cart" id="addCartBtn"
                                     onclick="addToCart(${product.id})"
                                     ${product.available_stock <= 0 ? 'disabled' : ''}>
                                 ${product.available_stock > 0 ? '加入购物车' : '暂时缺货'}
@@ -340,15 +371,105 @@
                 }
                 return;
             }
+
+            // 如果有SKU规格，必须先选择
+            if (currentProduct && currentProduct.spec_list && currentProduct.spec_list.length > 0 && !selectedSkuId) {
+                alert('请先选择商品规格');
+                return;
+            }
             
             const quantity = parseInt(document.getElementById('quantity').value) || 1;
-            const result = await OrderAPI.addToCart(productId, quantity);
+            const result = await OrderAPI.addToCart(productId, quantity, selectedSkuId);
             if (result.success) {
                 if (confirm('✅ 已加入购物车！\n\n去购物车查看？')) {
                     window.location.href = 'cart.html';
                 }
             } else {
                 alert(result.message);
+            }
+        }
+
+        // SKU规格选择
+        function selectSpec(btn, attrName, value) {
+            // 切换选中状态
+            const group = btn.parentElement;
+            const wasActive = btn.classList.contains('active');
+            group.querySelectorAll('.spec-btn').forEach(b => b.classList.remove('active'));
+            
+            if (!wasActive) {
+                btn.classList.add('active');
+                selectedSpecs[attrName] = value;
+            } else {
+                delete selectedSpecs[attrName];
+            }
+
+            matchSku();
+        }
+
+        function matchSku() {
+            selectedSkuId = null;
+            const infoEl = document.getElementById('skuSelectedInfo');
+            const cartBtn = document.getElementById('addCartBtn');
+            const stockEl = document.getElementById('stockStatusText');
+            const qtyInput = document.getElementById('quantity');
+
+            if (!currentProduct || !currentProduct.skus) return;
+
+            const specCount = currentProduct.spec_list ? currentProduct.spec_list.length : 0;
+            const selectedCount = Object.keys(selectedSpecs).length;
+
+            if (selectedCount === 0) {
+                infoEl.textContent = '请选择规格';
+                // 恢复SPU默认
+                stockEl.innerHTML = currentProduct.available_stock > 0 
+                    ? `<span class="stock-available">有货 (${currentProduct.available_stock}件)</span>` 
+                    : '<span class="stock-out">暂时缺货</span>';
+                cartBtn.disabled = currentProduct.available_stock <= 0;
+                cartBtn.textContent = currentProduct.available_stock > 0 ? '加入购物车' : '暂时缺货';
+                qtyInput.max = currentProduct.available_stock;
+                return;
+            }
+
+            // 尝试匹配SKU
+            const selectedText = Object.entries(selectedSpecs).map(([k, v]) => `${k}:${v}`).join(' / ');
+            infoEl.textContent = '已选：' + selectedText;
+
+            // 精确匹配：找到包含所有选中属性值的SKU
+            const matchedSku = currentProduct.skus.find(sku => {
+                if (!sku.attributes) return false;
+                return Object.entries(selectedSpecs).every(([attrName, value]) => {
+                    return sku.attributes.some(a => a.attr_name === attrName && a.value === value);
+                }) && sku.attributes.length === selectedCount;
+            });
+
+            if (matchedSku && selectedCount === specCount) {
+                selectedSkuId = matchedSku.id;
+                const skuAvailable = matchedSku.stock - (matchedSku.locked_stock || 0);
+                const skuPrice = parseFloat(matchedSku.price);
+
+                // 更新价格显示
+                const priceEl = document.querySelector('.price-current');
+                if (priceEl) priceEl.textContent = '¥' + skuPrice.toFixed(2);
+
+                // 更新库存显示
+                stockEl.innerHTML = skuAvailable > 0 
+                    ? `<span class="stock-available">有货 (${skuAvailable}件)</span>` 
+                    : '<span class="stock-out">暂时缺货</span>';
+
+                // 更新主图
+                if (matchedSku.cover_image) {
+                    const mainImg = document.getElementById('mainImage');
+                    if (mainImg) mainImg.src = matchedSku.cover_image;
+                }
+
+                cartBtn.disabled = skuAvailable <= 0;
+                cartBtn.textContent = skuAvailable > 0 ? '加入购物车' : '暂时缺货';
+                qtyInput.max = skuAvailable;
+                if (parseInt(qtyInput.value) > skuAvailable) qtyInput.value = Math.max(1, skuAvailable);
+                
+                infoEl.textContent = `已选：${selectedText} | 价格：¥${skuPrice.toFixed(2)} | 库存：${skuAvailable}`;
+            } else if (selectedCount < specCount) {
+                infoEl.textContent = `已选：${selectedText}（请继续选择其他规格）`;
             }
         }
 

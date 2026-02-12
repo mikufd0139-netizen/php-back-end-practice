@@ -43,8 +43,10 @@ const OrderAPI = {
         return this.request('cart_list', 'GET');
     },
 
-    async addToCart(productId, quantity = 1) {
-        return this.request('cart_add', 'POST', { product_id: productId, quantity });
+    async addToCart(productId, quantity = 1, skuId = null) {
+        const data = { product_id: productId, quantity };
+        if (skuId) data.sku_id = skuId;
+        return this.request('cart_add', 'POST', data);
     },
 
     async updateCartItem(id, quantity) {

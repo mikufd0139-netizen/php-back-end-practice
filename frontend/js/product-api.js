@@ -94,5 +94,17 @@ const ProductAPI = {
 
     async addReview(data) {
         return this.request('review_add', 'POST', data);
+    },
+
+    // ========== 属性接口 ==========
+
+    async getAttributeList(categoryId) {
+        return this.request('attribute_list', 'GET', null, { category_id: categoryId });
+    },
+
+    // ========== SKU接口 ==========
+
+    async getSkuList(productId) {
+        return this.request('sku_list', 'GET', null, { product_id: productId });
     }
 };
