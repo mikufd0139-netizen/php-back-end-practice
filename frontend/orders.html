@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的订单 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/order.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt; <span>我的订单</span>
+        </div>
+
+        <!-- 订单状态标签 -->
+        <div class="order-tabs">
+            <button class="order-tab active" data-status="" onclick="switchTab(this)">全部</button>
+            <button class="order-tab" data-status="0" onclick="switchTab(this)">待付款</button>
+            <button class="order-tab" data-status="1" onclick="switchTab(this)">待发货</button>
+            <button class="order-tab" data-status="2" onclick="switchTab(this)">待收货</button>
+            <button class="order-tab" data-status="3" onclick="switchTab(this)">已完成</button>
+            <button class="order-tab" data-status="4" onclick="switchTab(this)">已取消</button>
+        </div>
+
+        <div id="orderListContent" style="margin-top:15px;">
+            <div class="loading">加载中...</div>
+        </div>
+
+        <!-- 分页 -->
+        <div id="paginationArea" style="display:none;text-align:center;margin-top:20px;">
+            <button class="btn" onclick="changePage(-1)" id="prevBtn">上一页</button>
+            <span id="pageInfo" style="margin:0 15px;color:#666;"></span>
+            <button class="btn" onclick="changePage(1)" id="nextBtn">下一页</button>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/order-api.js"></script>
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        let currentStatus = '';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+
+            // 从URL获取status参数
+            const params = new URLSearchParams(window.location.search);
+            if (params.has('status')) {
+                currentStatus = params.get('status');
+                document.querySelectorAll('.order-tab').forEach(t => {
+                    t.classList.toggle('active', t.dataset.status === currentStatus);
+                });
+            }
+
+            loadOrders();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        function switchTab(el) {
+            document.querySelectorAll('.order-tab').forEach(t => t.classList.remove('active'));
+            el.classList.add('active');
+            currentStatus = el.dataset.status;
+            currentPage = 1;
+            loadOrders();
+        }
+
+        async function loadOrders() {
+            const container = document.getElementById('orderListContent');
+            container.innerHTML = '<div class="loading">加载中...</div>';
+
+            const params = { page: currentPage, page_size: 10 };
+            if (currentStatus !== '') params.status = currentStatus;
+
+            const result = await OrderAPI.getOrderList(params);
+
+            if (!result.success) {
+                container.innerHTML = `<div class="empty-state"><p>${result.message}</p></div>`;
+                return;
+            }
+
+            const { list, pagination } = result.data;
+            totalPages = pagination.total_pages;
+
+            if (list.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">📦</div>
+                        <p>暂无订单</p>
+                        <a href="products.html" class="btn btn-primary">去逛逛</a>
+                    </div>`;
+                document.getElementById('paginationArea').style.display = 'none';
+                return;
+            }
+
+            container.innerHTML = list.map(order => `
+                <div class="order-card">
+                    <div class="order-card-header">
+                        <span class="order-no">订单号：${order.order_no}</span>
+                        <span class="order-status status-${order.status}">${order.status_text}</span>
+                    </div>
+                    <div class="order-card-body" onclick="location.href='order-detail.html?id=${order.id}'" style="cursor:pointer;">
+                        ${order.items.map(item => `
+                            <div class="order-product">
+                                <div class="order-product-img">
+                                    ${item.cover_image ? `<img src="${item.cover_image}" />` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:11px;">无图</div>'}
+                                </div>
+                                <div class="order-product-info">
+                                    <h4>${escapeHtml(item.product_name)}</h4>
+                                    <div class="product-price-qty">¥${parseFloat(item.price).toFixed(2)} × ${item.quantity}</div>
+                                </div>
+                                <div class="order-product-subtotal">¥${item.subtotal.toFixed(2)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="order-card-footer">
+                        <div class="order-total">
+                            共 ${order.item_count} 件，合计：<span class="total-amount">¥${order.total_amount.toFixed(2)}</span>
+                        </div>
+                        <div class="order-actions">
+                            ${getOrderActions(order)}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            // 分页
+            const pagArea = document.getElementById('paginationArea');
+            if (totalPages > 1) {
+                pagArea.style.display = 'block';
+                document.getElementById('pageInfo').textContent = `${currentPage} / ${totalPages}`;
+                document.getElementById('prevBtn').disabled = currentPage <= 1;
+                document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+            } else {
+                pagArea.style.display = 'none';
+            }
+        }
+
+        function getOrderActions(order) {
+            let html = `<a href="order-detail.html?id=${order.id}" class="btn btn-outline-primary btn-sm">查看详情</a>`;
+            
+            switch (order.status) {
+                case 0: // 待付款
+                    html += `<button class="btn btn-primary btn-sm" onclick="goPayOrder(${order.id})">立即支付</button>`;
+                    html += `<button class="btn btn-outline-danger btn-sm" onclick="cancelOrder(${order.id})">取消</button>`;
+                    break;
+                case 2: // 待收货
+                    html += `<button class="btn btn-primary btn-sm" onclick="confirmOrder(${order.id})">确认收货</button>`;
+                    break;
+                case 3: // 已完成
+                case 4: // 已取消
+                case 5: // 已退款
+                    html += `<button class="btn btn-outline-danger btn-sm" onclick="deleteOrder(${order.id})">删除</button>`;
+                    break;
+            }
+            return html;
+        }
+
+        function goPayOrder(id) {
+            window.location.href = `order-detail.html?id=${id}&pay=1`;
+        }
+
+        async function cancelOrder(id) {
+            if (!confirm('确定要取消此订单吗？')) return;
+            const result = await OrderAPI.cancelOrder(id);
+            if (result.success) {
+                loadOrders();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function confirmOrder(id) {
+            if (!confirm('确认已收到商品？')) return;
+            const result = await OrderAPI.confirmOrder(id);
+            if (result.success) {
+                loadOrders();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function deleteOrder(id) {
+            if (!confirm('确定删除此订单？删除后不可恢复。')) return;
+            const result = await OrderAPI.deleteOrder(id);
+            if (result.success) {
+                loadOrders();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            loadOrders();
+            window.scrollTo(0, 0);
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

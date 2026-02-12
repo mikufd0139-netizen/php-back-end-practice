@@ -8,6 +8,8 @@ const AdminAPI = {
     adminURL: '/php/api/admin.php',
     // 商品模块 API
     productURL: '/php/api/product.php',
+    // 订单模块 API
+    orderURL: '/php/api/order.php',
 
     /**
      * 发送请求
@@ -159,6 +161,24 @@ const AdminAPI = {
             console.error('上传失败:', error);
             return { success: false, message: '上传失败' };
         }
+    },
+
+    // ========== 订单管理 ==========
+
+    async getAdminOrderList(params = {}) {
+        return this.request(this.orderURL, 'admin_order_list', 'GET', null, params);
+    },
+
+    async getAdminOrderDetail(id) {
+        return this.request(this.orderURL, 'admin_order_detail', 'GET', null, { id });
+    },
+
+    async shipOrder(orderId) {
+        return this.request(this.orderURL, 'admin_order_ship', 'POST', { order_id: orderId });
+    },
+
+    async updateOrderStatus(orderId, status) {
+        return this.request(this.orderURL, 'admin_order_update_status', 'POST', { order_id: orderId, status: status });
     }
 };
 

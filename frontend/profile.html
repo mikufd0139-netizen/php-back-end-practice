@@ -9,8 +9,10 @@
 <body>
     <nav class="navbar">
         <a href="index.html" class="logo">🛒 Shop</a>
-        <div class="nav-links">
+        <div class="nav-links" id="navLinks">
             <a href="products.html">商品</a>
+            <a href="cart.html">🛒 购物车</a>
+            <a href="orders.html">📦 订单</a>
             <a href="profile.html">👤 个人中心</a>
             <a href="#" onclick="handleLogout()">退出</a>
         </div>
@@ -53,6 +55,16 @@
             <button class="btn btn-danger" style="margin-top: 30px;" onclick="handleLogout()">
                 退出登录
             </button>
+
+            <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #eee;">
+                <h3 style="font-size: 14px; color: #666; margin-bottom: 15px; text-align: left;">快捷入口</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <a href="cart.html" style="display:block;padding:12px;background:#f6f8fa;border-radius:8px;text-decoration:none;color:#333;text-align:center;font-size:14px;">🛒 购物车</a>
+                    <a href="orders.html" style="display:block;padding:12px;background:#f6f8fa;border-radius:8px;text-decoration:none;color:#333;text-align:center;font-size:14px;">📦 我的订单</a>
+                    <a href="addresses.html" style="display:block;padding:12px;background:#f6f8fa;border-radius:8px;text-decoration:none;color:#333;text-align:center;font-size:14px;">📍 收货地址</a>
+                    <a href="products.html" style="display:block;padding:12px;background:#f6f8fa;border-radius:8px;text-decoration:none;color:#333;text-align:center;font-size:14px;">🛒 浏览商品</a>
+                </div>
+            </div>
         </div>
     </div>
 

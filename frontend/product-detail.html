@@ -30,6 +30,7 @@
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/product-api.js"></script>
+    <script src="js/order-api.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             updateNavbar();
@@ -44,6 +45,8 @@
             if (Auth.isLoggedIn()) {
                 const user = Auth.getUser();
                 html += `
+                    <a href="cart.html">🛒 购物车</a>
+                    <a href="orders.html">📦 订单</a>
                     <a href="profile.html">👤 ${user.username}</a>
                     <a href="#" onclick="handleLogout()">退出</a>
                 `;
@@ -172,8 +175,8 @@
             input.value = value;
         }
 
-        // 加入购物车（需要后续实现购物车功能）
-        function addToCart(productId) {
+        // 加入购物车
+        async function addToCart(productId) {
             if (!Auth.isLoggedIn()) {
                 if (confirm('请先登录后再添加购物车，是否前往登录？')) {
                     window.location.href = 'login.html';
@@ -182,7 +185,14 @@
             }
             
             const quantity = parseInt(document.getElementById('quantity').value) || 1;
-            alert(`商品已加入购物车！\n商品ID: ${productId}\n数量: ${quantity}\n\n(购物车功能待实现)`);
+            const result = await OrderAPI.addToCart(productId, quantity);
+            if (result.success) {
+                if (confirm('✅ 已加入购物车！\n\n去购物车查看？')) {
+                    window.location.href = 'cart.html';
+                }
+            } else {
+                alert(result.message);
+            }
         }
 
         // 格式化日期

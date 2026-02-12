@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>收货地址 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/order.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt;
+            <a href="profile.html">个人中心</a> &gt;
+            <span>收货地址</span>
+        </div>
+
+        <h2 style="margin-bottom: 20px;">📍 我的收货地址</h2>
+
+        <div class="address-grid" id="addressGrid">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- 地址表单弹窗 -->
+    <div class="modal" id="addressModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:#fff;border-radius:8px;width:90%;max-width:500px;max-height:90vh;overflow:auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+            <div style="padding:16px 24px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;">
+                <h3 id="modalTitle" style="margin:0;font-size:16px;color:#333;">添加地址</h3>
+                <button onclick="hideModal()" style="background:none;border:none;font-size:24px;cursor:pointer;color:#999;line-height:1;">&times;</button>
+            </div>
+            <div style="padding:24px;">
+                <form id="addressForm" class="address-form">
+                    <input type="hidden" id="addrId" />
+                    <div class="form-row" style="display:flex;gap:10px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>收货人 <span style="color:#ff4d4f;">*</span></label>
+                            <input type="text" id="addrName" placeholder="请输入收货人姓名" required />
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>手机号 <span style="color:#ff4d4f;">*</span></label>
+                            <input type="tel" id="addrPhone" placeholder="请输入手机号" required />
+                        </div>
+                    </div>
+                    <div class="form-row" style="display:flex;gap:10px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>省份 <span style="color:#ff4d4f;">*</span></label>
+                            <input type="text" id="addrProvince" placeholder="如：广东省" required />
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>城市 <span style="color:#ff4d4f;">*</span></label>
+                            <input type="text" id="addrCity" placeholder="如：深圳市" required />
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>区县 <span style="color:#ff4d4f;">*</span></label>
+                            <input type="text" id="addrRegion" placeholder="如：南山区" required />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>详细地址 <span style="color:#ff4d4f;">*</span></label>
+                        <input type="text" id="addrDetail" placeholder="街道、楼栋、门牌号等" required />
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="addrDefault" /> 设为默认地址
+                        </label>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px;">
+                        <button type="button" onclick="hideModal()" class="btn" style="background:#f5f5f5;color:#666;">取消</button>
+                        <button type="button" onclick="saveAddress()" class="btn btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/order-api.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+            loadAddresses();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        async function loadAddresses() {
+            const grid = document.getElementById('addressGrid');
+            const result = await OrderAPI.getAddressList();
+
+            if (!result.success) {
+                grid.innerHTML = `<p style="color:#ff4d4f;">${result.message}</p>`;
+                return;
+            }
+
+            const addresses = result.data;
+            let html = '';
+
+            addresses.forEach(addr => {
+                html += `
+                    <div class="address-card ${addr.is_default ? 'is-default' : ''}">
+                        ${addr.is_default ? '<span class="default-tag">默认</span>' : ''}
+                        <div class="addr-name">${escapeHtml(addr.name)}</div>
+                        <div class="addr-phone">${addr.phone}</div>
+                        <div class="addr-detail">${escapeHtml(addr.full_address)}</div>
+                        <div class="addr-actions">
+                            <a onclick="editAddress(${addr.id})">✏️ 编辑</a>
+                            ${!addr.is_default ? `<a onclick="setDefault(${addr.id})">⭐ 设为默认</a>` : ''}
+                            <a class="danger" onclick="deleteAddress(${addr.id})">🗑️ 删除</a>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                <div class="add-address-card" onclick="showAddModal()">
+                    <div class="add-icon">+</div>
+                    <span>添加新地址</span>
+                </div>
+            `;
+
+            grid.innerHTML = html;
+        }
+
+        function showAddModal() {
+            document.getElementById('modalTitle').textContent = '添加地址';
+            document.getElementById('addressForm').reset();
+            document.getElementById('addrId').value = '';
+            showModal();
+        }
+
+        async function editAddress(id) {
+            const result = await OrderAPI.getAddressDetail(id);
+            if (!result.success) {
+                alert(result.message);
+                return;
+            }
+            const addr = result.data;
+            document.getElementById('modalTitle').textContent = '编辑地址';
+            document.getElementById('addrId').value = addr.id;
+            document.getElementById('addrName').value = addr.name;
+            document.getElementById('addrPhone').value = addr.phone;
+            document.getElementById('addrProvince').value = addr.province;
+            document.getElementById('addrCity').value = addr.city;
+            document.getElementById('addrRegion').value = addr.region;
+            document.getElementById('addrDetail').value = addr.detail_address;
+            document.getElementById('addrDefault').checked = addr.is_default === 1;
+            showModal();
+        }
+
+        async function saveAddress() {
+            const id = document.getElementById('addrId').value;
+            const data = {
+                name: document.getElementById('addrName').value.trim(),
+                phone: document.getElementById('addrPhone').value.trim(),
+                province: document.getElementById('addrProvince').value.trim(),
+                city: document.getElementById('addrCity').value.trim(),
+                region: document.getElementById('addrRegion').value.trim(),
+                detail_address: document.getElementById('addrDetail').value.trim(),
+                is_default: document.getElementById('addrDefault').checked ? 1 : 0
+            };
+
+            if (!data.name || !data.phone || !data.province || !data.city || !data.region || !data.detail_address) {
+                alert('请填写完整的地址信息');
+                return;
+            }
+
+            let result;
+            if (id) {
+                data.id = parseInt(id);
+                result = await OrderAPI.updateAddress(data);
+            } else {
+                result = await OrderAPI.addAddress(data);
+            }
+
+            if (result.success) {
+                hideModal();
+                loadAddresses();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function setDefault(id) {
+            const result = await OrderAPI.setDefaultAddress(id);
+            if (result.success) {
+                loadAddresses();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function deleteAddress(id) {
+            if (!confirm('确定删除此地址？')) return;
+            const result = await OrderAPI.deleteAddress(id);
+            if (result.success) {
+                loadAddresses();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function showModal() {
+            document.getElementById('addressModal').style.display = 'flex';
+        }
+
+        function hideModal() {
+            document.getElementById('addressModal').style.display = 'none';
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

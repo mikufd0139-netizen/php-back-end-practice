@@ -217,6 +217,8 @@
             if (Auth.isLoggedIn()) {
                 const user = Auth.getUser();
                 html += `
+                    <a href="cart.html">🛒 购物车</a>
+                    <a href="orders.html">📦 订单</a>
                     <a href="profile.html">👤 ${user.username}</a>
                     <a href="#" onclick="handleLogout()">退出</a>
                 `;
@@ -250,7 +252,9 @@
                         <p>欢迎回来，祝你购物愉快</p>
                         <div class="quick-links">
                             <a href="profile.html">个人资料</a>
-                            <a href="products.html">浏览商品</a>
+                            <a href="cart.html">购物车</a>
+                            <a href="orders.html">我的订单</a>
+                            <a href="addresses.html">收货地址</a>
                         </div>
                     </div>
                 `;

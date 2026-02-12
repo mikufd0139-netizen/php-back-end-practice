@@ -101,6 +101,8 @@
             if (Auth.isLoggedIn()) {
                 const user = Auth.getUser();
                 html += `
+                    <a href="cart.html">🛒 购物车</a>
+                    <a href="orders.html">📦 订单</a>
                     <a href="profile.html">👤 ${user.username}</a>
                     <a href="#" onclick="handleLogout()">退出</a>
                 `;

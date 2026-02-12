@@ -1017,8 +1017,8 @@ function handleUploadImage(): void
         Response::error('文件保存失败', 500);
     }
 
-    //返回相对路径
-    $relativePath = '/uploads/products/' . date('Ym') . '/' . $filename;
+    //返回相对路径 (需要包含/php前缀，因为uploads在php目录下)
+    $relativePath = '/php/uploads/products/' . date('Ym') . '/' . $filename;
 
      Response::success([
         'url' => $relativePath,

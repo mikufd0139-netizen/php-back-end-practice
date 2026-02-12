@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>购物车 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/order.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container cart-page">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt; <span>购物车</span>
+        </div>
+
+        <div id="cartContent">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/order-api.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+            loadCart();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        async function loadCart() {
+            const container = document.getElementById('cartContent');
+            const result = await OrderAPI.getCartList();
+
+            if (!result.success) {
+                container.innerHTML = `<div class="empty-state"><div class="empty-icon">😵</div><p>${result.message}</p></div>`;
+                return;
+            }
+
+            const data = result.data;
+
+            if (data.items.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">🛒</div>
+                        <p>购物车是空的</p>
+                        <a href="products.html" class="btn btn-primary">去逛逛</a>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="cart-container">
+                    <div class="cart-list">
+                        <div class="cart-header">
+                            <h2>购物车 (${data.item_count}件商品)</h2>
+                            <button class="cart-clear-btn" onclick="handleClearCart()">🗑️ 清空购物车</button>
+                        </div>
+                        ${data.items.map(item => `
+                            <div class="cart-item" id="cartItem_${item.id}" data-valid="${item.is_valid}">
+                                <div class="cart-item-image">
+                                    ${item.cover_image
+                                        ? `<img src="${item.cover_image}" alt="${escapeHtml(item.name)}" />`
+                                        : '<div class="no-img">暂无图片</div>'}
+                                </div>
+                                <div class="cart-item-info">
+                                    <h3>${escapeHtml(item.name)}</h3>
+                                    <div class="cart-item-price">¥${item.price.toFixed(2)}</div>
+                                    ${!item.is_valid ? '<div class="cart-item-status">⚠️ 商品已失效</div>' : ''}
+                                </div>
+                                <div class="quantity-control">
+                                    <button onclick="changeQty(${item.id}, ${item.quantity - 1})">−</button>
+                                    <input type="number" value="${item.quantity}" min="1" max="${item.available_stock}"
+                                           onchange="changeQty(${item.id}, parseInt(this.value))" />
+                                    <button onclick="changeQty(${item.id}, ${item.quantity + 1})">+</button>
+                                </div>
+                                <div class="cart-item-subtotal">¥${item.subtotal.toFixed(2)}</div>
+                                <button class="cart-item-delete" onclick="handleDelete(${item.id})" title="删除">×</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="cart-summary">
+                        <h3>订单汇总</h3>
+                        <div class="summary-row">
+                            <span>商品件数</span>
+                            <span>${data.total_quantity} 件</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>运费</span>
+                            <span style="color:#52c41a;">免运费</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>合计</span>
+                            <span class="amount">¥${data.total_amount.toFixed(2)}</span>
+                        </div>
+                        <button class="btn-checkout" onclick="goCheckout()" ${data.total_quantity === 0 ? 'disabled' : ''}>
+                            去结算 (${data.total_quantity}件)
+                        </button>
+                    </div>
+                </div>`;
+        }
+
+        async function changeQty(cartId, quantity) {
+            if (quantity <= 0) {
+                handleDelete(cartId);
+                return;
+            }
+            const result = await OrderAPI.updateCartItem(cartId, quantity);
+            if (result.success) {
+                loadCart();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function handleDelete(cartId) {
+            if (!confirm('确定从购物车中移除此商品？')) return;
+            const result = await OrderAPI.deleteCartItem(cartId);
+            if (result.success) {
+                loadCart();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function handleClearCart() {
+            if (!confirm('确定要清空购物车吗？')) return;
+            const result = await OrderAPI.clearCart();
+            if (result.success) {
+                loadCart();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function goCheckout() {
+            window.location.href = 'checkout.html';
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

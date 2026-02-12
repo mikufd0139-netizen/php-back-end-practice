@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单管理 - Shop 后台</title>
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="admin-header">
+        <a href="index.html" class="logo">🛒 Shop <span>后台管理</span></a>
+        <div class="user-info">
+            <span class="username" id="adminName">管理员</span>
+            <button class="logout-btn" onclick="handleLogout()">退出登录</button>
+        </div>
+    </header>
+
+    <!-- 侧边栏 -->
+    <aside class="admin-sidebar">
+        <a href="index.html" class="menu-item">📊 控制台</a>
+        <a href="users.html" class="menu-item">👥 用户管理</a>
+        <a href="categories.html" class="menu-item">🏷️ 分类管理</a>
+        <a href="products.html" class="menu-item">📦 商品管理</a>
+        <a href="orders.html" class="menu-item active">📋 订单管理</a>
+    </aside>
+
+    <!-- 主内容 -->
+    <main class="admin-main">
+        <div class="page-header">
+            <h1>订单管理</h1>
+            <p>管理所有用户订单</p>
+        </div>
+
+        <!-- 状态统计 -->
+        <div class="stats-grid" id="statusStats">
+            <div class="stat-card warning">
+                <div class="stat-title">待付款</div>
+                <div class="stat-value" id="count0">-</div>
+            </div>
+            <div class="stat-card primary">
+                <div class="stat-title">待发货</div>
+                <div class="stat-value" id="count1">-</div>
+            </div>
+            <div class="stat-card" style="background:#fff;">
+                <div class="stat-title">待收货</div>
+                <div class="stat-value" style="color:#722ed1;" id="count2">-</div>
+            </div>
+            <div class="stat-card success">
+                <div class="stat-title">已完成</div>
+                <div class="stat-value" id="count3">-</div>
+            </div>
+        </div>
+
+        <!-- 搜索和筛选 -->
+        <div class="toolbar">
+            <div class="toolbar-left">
+                <input type="text" id="searchKeyword" class="form-input" placeholder="搜索订单号/用户名..." />
+                <select id="filterStatus" class="form-select">
+                    <option value="">全部状态</option>
+                    <option value="0">待付款</option>
+                    <option value="1">待发货</option>
+                    <option value="2">待收货</option>
+                    <option value="3">已完成</option>
+                    <option value="4">已取消</option>
+                    <option value="5">已退款</option>
+                </select>
+                <button class="btn btn-primary" onclick="handleSearch()">搜索</button>
+                <button class="btn" style="background:#f5f5f5;color:#666;" onclick="resetSearch()">重置</button>
+            </div>
+        </div>
+
+        <!-- 订单列表 -->
+        <div class="card">
+            <div class="card-body">
+                <div class="loading" id="loading">加载中...</div>
+                <table class="table" id="orderTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th width="60">ID</th>
+                            <th>订单号</th>
+                            <th>用户</th>
+                            <th width="80">商品数</th>
+                            <th width="100">金额</th>
+                            <th width="80">状态</th>
+                            <th width="160">创建时间</th>
+                            <th width="180">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orderBody"></tbody>
+                </table>
+                <div class="empty" id="emptyState" style="display: none;">暂无订单数据</div>
+
+                <div class="pagination" id="pagination" style="display: none;">
+                    <button id="prevBtn" onclick="prevPage()">上一页</button>
+                    <span class="page-info" id="pageInfo">第 1 页 / 共 1 页</span>
+                    <button id="nextBtn" onclick="nextPage()">下一页</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 订单详情弹窗 -->
+    <div class="modal" id="detailModal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>订单详情</h3>
+                <button class="modal-close" onclick="hideDetailModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="detailContent">
+                <div class="loading">加载中...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/admin-api.js"></script>
+    <script>
+        let currentPage = 1;
+        let totalPages = 1;
+        const pageSize = 20;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!AdminAuth.requireLogin()) return;
+            const user = AdminAuth.getUser();
+            document.getElementById('adminName').textContent = user?.username || '管理员';
+            loadOrders();
+        });
+
+        async function loadOrders() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('orderTable').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('pagination').style.display = 'none';
+
+            const keyword = document.getElementById('searchKeyword').value.trim();
+            const status = document.getElementById('filterStatus').value;
+
+            const params = { page: currentPage, page_size: pageSize };
+            if (keyword) params.keyword = keyword;
+            if (status !== '') params.status = status;
+
+            const result = await AdminAPI.getAdminOrderList(params);
+
+            document.getElementById('loading').style.display = 'none';
+
+            if (!result.success) {
+                document.getElementById('emptyState').textContent = result.message;
+                document.getElementById('emptyState').style.display = 'block';
+                return;
+            }
+
+            const { list, pagination, status_counts } = result.data;
+
+            // 更新状态统计
+            document.getElementById('count0').textContent = status_counts[0] || 0;
+            document.getElementById('count1').textContent = status_counts[1] || 0;
+            document.getElementById('count2').textContent = status_counts[2] || 0;
+            document.getElementById('count3').textContent = status_counts[3] || 0;
+
+            if (list.length === 0) {
+                document.getElementById('emptyState').style.display = 'block';
+                return;
+            }
+
+            totalPages = pagination.total_pages;
+
+            const tbody = document.getElementById('orderBody');
+            tbody.innerHTML = list.map(order => `
+                <tr>
+                    <td>${order.id}</td>
+                    <td><span style="font-family:monospace;font-size:12px;">${order.order_no}</span></td>
+                    <td>${escapeHtml(order.username || '未知')}</td>
+                    <td>${order.item_count}</td>
+                    <td class="price">¥${order.total_amount.toFixed(2)}</td>
+                    <td><span class="tag ${getStatusTagClass(order.status)}">${order.status_text}</span></td>
+                    <td>${order.created_at}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="viewDetail(${order.id})">详情</button>
+                        ${order.status === 1 ? `<button class="btn btn-sm btn-success" onclick="shipOrder(${order.id})">发货</button>` : ''}
+                        ${order.status <= 2 ? `<button class="btn btn-sm btn-warning" onclick="showStatusModal(${order.id}, ${order.status})">改状态</button>` : ''}
+                    </td>
+                </tr>
+            `).join('');
+
+            document.getElementById('orderTable').style.display = 'table';
+
+            if (totalPages > 1) {
+                document.getElementById('pagination').style.display = 'flex';
+                document.getElementById('pageInfo').textContent = `第 ${currentPage} 页 / 共 ${totalPages} 页`;
+                document.getElementById('prevBtn').disabled = currentPage <= 1;
+                document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+            }
+        }
+
+        function getStatusTagClass(status) {
+            const map = { 0: 'tag-warning', 1: 'tag-blue', 2: 'tag-purple', 3: 'tag-success', 4: 'tag-default', 5: 'tag-danger' };
+            return map[status] || '';
+        }
+
+        function handleSearch() { currentPage = 1; loadOrders(); }
+        function resetSearch() {
+            document.getElementById('searchKeyword').value = '';
+            document.getElementById('filterStatus').value = '';
+            currentPage = 1;
+            loadOrders();
+        }
+        function prevPage() { if (currentPage > 1) { currentPage--; loadOrders(); } }
+        function nextPage() { if (currentPage < totalPages) { currentPage++; loadOrders(); } }
+
+        async function viewDetail(id) {
+            document.getElementById('detailContent').innerHTML = '<div class="loading">加载中...</div>';
+            document.getElementById('detailModal').classList.add('show');
+
+            const result = await AdminAPI.getAdminOrderDetail(id);
+            if (!result.success) {
+                document.getElementById('detailContent').innerHTML = `<p style="color:#ff4d4f;">${result.message}</p>`;
+                return;
+            }
+
+            const order = result.data;
+            const addr = order.snap_address;
+
+            document.getElementById('detailContent').innerHTML = `
+                <div style="margin-bottom:20px;">
+                    <div class="detail-info-grid">
+                        <div class="detail-info-item"><div class="label">订单号</div><div class="value">${order.order_no}</div></div>
+                        <div class="detail-info-item"><div class="label">状态</div><div class="value" style="color:${getStatusColor(order.status)};">${order.status_text}</div></div>
+                        <div class="detail-info-item"><div class="label">下单时间</div><div class="value">${order.created_at}</div></div>
+                        <div class="detail-info-item"><div class="label">订单金额</div><div class="value price">¥${order.total_amount.toFixed(2)}</div></div>
+                    </div>
+                </div>
+
+                ${addr ? `
+                <div style="background:#f6f8fa;padding:15px;border-radius:8px;margin-bottom:20px;">
+                    <h4 style="margin-bottom:8px;font-size:14px;color:#666;">📍 收货地址</h4>
+                    <p style="font-weight:bold;">${escapeHtml(addr.name)} ${addr.phone}</p>
+                    <p style="color:#666;font-size:13px;">${escapeHtml(addr.full_address || (addr.province + addr.city + addr.region + addr.detail_address))}</p>
+                </div>` : ''}
+
+                <h4 style="margin-bottom:10px;font-size:14px;color:#666;">🛍️ 商品列表</h4>
+                <table class="table" style="margin-bottom:15px;">
+                    <thead>
+                        <tr><th>商品</th><th width="80">单价</th><th width="60">数量</th><th width="80">小计</th></tr>
+                    </thead>
+                    <tbody>
+                        ${order.items.map(item => `
+                            <tr>
+                                <td>${escapeHtml(item.product_name)}</td>
+                                <td>¥${parseFloat(item.price).toFixed(2)}</td>
+                                <td>${item.quantity}</td>
+                                <td class="price">¥${item.subtotal.toFixed(2)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+
+                ${order.payment ? `
+                <div style="background:#f6f8fa;padding:15px;border-radius:8px;">
+                    <h4 style="margin-bottom:8px;font-size:14px;color:#666;">💳 支付信息</h4>
+                    <p>交易号：${order.payment.transaction_id}</p>
+                    <p>支付方式：${order.payment.payment_method_text || getPayMethodName(order.payment.payment_method)}</p>
+                    <p>支付时间：${order.payment.pay_time || '-'}</p>
+                </div>` : ''}
+
+                <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
+                    ${order.status === 1 ? `<button class="btn btn-success" onclick="shipOrder(${order.id});hideDetailModal();">发货</button>` : ''}
+                    <button class="btn" style="background:#f5f5f5;color:#666;" onclick="hideDetailModal()">关闭</button>
+                </div>
+            `;
+        }
+
+        function getStatusColor(status) {
+            const map = { 0: '#faad14', 1: '#1890ff', 2: '#722ed1', 3: '#52c41a', 4: '#999', 5: '#ff4d4f' };
+            return map[status] || '#999';
+        }
+
+        function getPayMethodName(method) {
+            const map = { alipay: '支付宝', wechat: '微信支付', balance: '余额支付' };
+            return map[method] || method;
+        }
+
+        function hideDetailModal() {
+            document.getElementById('detailModal').classList.remove('show');
+        }
+
+        async function shipOrder(id) {
+            if (!confirm('确认对此订单进行发货？')) return;
+            const result = await AdminAPI.shipOrder(id);
+            if (result.success) {
+                alert('发货成功！');
+                loadOrders();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        function showStatusModal(id, currentStatus) {
+            const statusOptions = [
+                { value: 0, text: '待付款' },
+                { value: 1, text: '待发货' },
+                { value: 2, text: '待收货' },
+                { value: 3, text: '已完成' },
+                { value: 4, text: '已取消' },
+                { value: 5, text: '已退款' }
+            ];
+
+            const newStatus = prompt(
+                `当前状态：${statusOptions.find(s => s.value === currentStatus)?.text}\n` +
+                `请输入新状态代码：\n` +
+                statusOptions.map(s => `${s.value} = ${s.text}`).join('\n')
+            );
+
+            if (newStatus === null) return;
+            const statusInt = parseInt(newStatus);
+            if (isNaN(statusInt) || statusInt < 0 || statusInt > 5) {
+                alert('无效的状态代码');
+                return;
+            }
+
+            updateOrderStatus(id, statusInt);
+        }
+
+        async function updateOrderStatus(id, status) {
+            const result = await AdminAPI.updateOrderStatus(id, status);
+            if (result.success) {
+                alert('状态更新成功！');
+                loadOrders();
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function handleLogout() {
+            await AdminAPI.logout();
+            AdminAuth.clearUser();
+            window.location.href = 'login.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

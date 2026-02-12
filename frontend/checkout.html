@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>确认订单 - Shop</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/order.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="index.html" class="logo">🛒 Shop</a>
+        <div class="nav-links" id="navLinks"></div>
+    </nav>
+
+    <div class="page-container checkout-page">
+        <div class="breadcrumb">
+            <a href="index.html">首页</a> &gt;
+            <a href="cart.html">购物车</a> &gt;
+            <span>确认订单</span>
+        </div>
+
+        <div id="checkoutContent">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/order-api.js"></script>
+    <script>
+        let selectedAddressId = 0;
+        let cartData = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!Auth.requireLogin()) return;
+            updateNavbar();
+            loadCheckoutData();
+        });
+
+        function updateNavbar() {
+            const navLinks = document.getElementById('navLinks');
+            const user = Auth.getUser();
+            navLinks.innerHTML = `
+                <a href="products.html">商品</a>
+                <a href="cart.html">🛒 购物车</a>
+                <a href="orders.html">📦 订单</a>
+                <a href="profile.html">👤 ${user ? user.username : ''}</a>
+                <a href="#" onclick="handleLogout()">退出</a>
+            `;
+        }
+
+        async function loadCheckoutData() {
+            const container = document.getElementById('checkoutContent');
+
+            // 并行加载购物车和地址
+            const [cartResult, addrResult] = await Promise.all([
+                OrderAPI.getCartList(),
+                OrderAPI.getAddressList()
+            ]);
+
+            if (!cartResult.success || cartResult.data.items.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">🛒</div>
+                        <p>购物车为空，无法结算</p>
+                        <a href="products.html" class="btn btn-primary">去逛逛</a>
+                    </div>`;
+                return;
+            }
+
+            cartData = cartResult.data;
+            const addresses = addrResult.success ? addrResult.data : [];
+
+            // 选择默认地址
+            const defaultAddr = addresses.find(a => a.is_default);
+            if (defaultAddr) selectedAddressId = defaultAddr.id;
+            else if (addresses.length > 0) selectedAddressId = addresses[0].id;
+
+            container.innerHTML = `
+                <!-- 收货地址 -->
+                <div class="checkout-section">
+                    <div class="checkout-section-header">
+                        <h3>📍 收货地址</h3>
+                        <a href="addresses.html" style="color:#007bff;text-decoration:none;font-size:13px;">管理地址</a>
+                    </div>
+                    <div class="checkout-section-body">
+                        ${addresses.length > 0 ? `
+                            <div class="address-select-list">
+                                ${addresses.map(addr => `
+                                    <div class="address-select-item ${addr.id === selectedAddressId ? 'selected' : ''}" 
+                                         onclick="selectAddress(${addr.id})">
+                                        <input type="radio" name="address" value="${addr.id}" 
+                                               ${addr.id === selectedAddressId ? 'checked' : ''} />
+                                        <div class="address-select-info">
+                                            <div class="name-phone">
+                                                ${escapeHtml(addr.name)} ${addr.phone}
+                                                ${addr.is_default ? '<span style="color:#007bff;font-size:12px;margin-left:8px;">[默认]</span>' : ''}
+                                            </div>
+                                            <div class="addr-text">${escapeHtml(addr.full_address)}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div style="text-align:center;padding:20px;color:#999;">
+                                <p>暂无收货地址</p>
+                                <a href="addresses.html" class="btn btn-primary" style="width:auto;display:inline-block;padding:8px 20px;margin-top:10px;">添加地址</a>
+                            </div>
+                        `}
+                    </div>
+                </div>
+
+                <!-- 商品列表 -->
+                <div class="checkout-section">
+                    <div class="checkout-section-header">
+                        <h3>🛍️ 商品清单</h3>
+                    </div>
+                    <div class="checkout-section-body">
+                        ${cartData.items.filter(i => i.is_valid).map(item => `
+                            <div class="checkout-item">
+                                <div class="checkout-item-img">
+                                    ${item.cover_image ? `<img src="${item.cover_image}" />` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:12px;">无图</div>'}
+                                </div>
+                                <div class="checkout-item-name">${escapeHtml(item.name)}</div>
+                                <div class="checkout-item-price">¥${item.price.toFixed(2)}</div>
+                                <div class="checkout-item-qty">×${item.quantity}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- 备注 -->
+                <div class="checkout-section">
+                    <div class="checkout-section-body">
+                        <div class="form-group" style="margin:0;">
+                            <label>订单备注</label>
+                            <input type="text" id="orderRemark" placeholder="选填，可填写特殊需求" 
+                                   style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 结算栏 -->
+                <div class="checkout-bar">
+                    <div class="checkout-total">
+                        共 <strong>${cartData.total_quantity}</strong> 件商品，合计：
+                        <span class="total-price">¥${cartData.total_amount.toFixed(2)}</span>
+                    </div>
+                    <button class="btn-submit-order" onclick="submitOrder()" ${addresses.length === 0 ? 'disabled' : ''}>
+                        提交订单
+                    </button>
+                </div>
+            `;
+        }
+
+        function selectAddress(id) {
+            selectedAddressId = id;
+            document.querySelectorAll('.address-select-item').forEach(el => {
+                el.classList.remove('selected');
+                el.querySelector('input[type="radio"]').checked = false;
+            });
+            const item = document.querySelector(`.address-select-item input[value="${id}"]`);
+            if (item) {
+                item.checked = true;
+                item.closest('.address-select-item').classList.add('selected');
+            }
+        }
+
+        async function submitOrder() {
+            if (!selectedAddressId) {
+                alert('请选择收货地址');
+                return;
+            }
+
+            const remark = document.getElementById('orderRemark')?.value || '';
+
+            if (!confirm('确认提交订单？')) return;
+
+            const result = await OrderAPI.createOrder(selectedAddressId, null, remark);
+            if (result.success) {
+                alert('订单创建成功！');
+                // 跳转到订单详情（可支付）
+                window.location.href = `order-detail.html?id=${result.data.order_id}`;
+            } else {
+                alert(result.message);
+            }
+        }
+
+        async function handleLogout() {
+            await API.logout();
+            Auth.clearUser();
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

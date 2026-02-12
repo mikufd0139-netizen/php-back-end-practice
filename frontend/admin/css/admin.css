@@ -225,6 +225,24 @@ body {
     border: 1px solid #91d5ff;
 }
 
+.tag-warning {
+    background-color: #fffbe6;
+    color: #faad14;
+    border: 1px solid #ffe58f;
+}
+
+.tag-purple {
+    background-color: #f9f0ff;
+    color: #722ed1;
+    border: 1px solid #d3adf7;
+}
+
+.tag-default {
+    background-color: #fafafa;
+    color: #999;
+    border: 1px solid #d9d9d9;
+}
+
 /* 按钮 */
 .btn {
     padding: 6px 15px;
@@ -606,6 +624,25 @@ body {
 
 .btn-warning:hover {
     background-color: #d48806;
+}
+
+/* 详情信息网格 */
+.detail-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+.detail-info-item .label {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 5px;
+}
+
+.detail-info-item .value {
+    font-size: 15px;
+    color: #333;
+    font-weight: 500;
 }
 
 /* 响应式 */
