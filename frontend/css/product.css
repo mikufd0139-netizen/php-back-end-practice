@@ -424,6 +424,42 @@
     margin-bottom: 5px;
 }
 
+/* 副标题 */
+.detail-subtitle {
+    color: #e74c3c;
+    font-size: 14px;
+    margin: 6px 0 8px;
+    line-height: 1.5;
+}
+
+/* 商品标签 */
+.product-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: normal;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+.tag-recommend { background: #e8f0fe; color: #1a73e8; }
+.tag-new { background: #e6f9ed; color: #16a34a; }
+.tag-hot { background: #fde8e8; color: #dc2626; }
+
+/* 商品统计 */
+.detail-stats {
+    display: flex;
+    gap: 20px;
+    padding: 10px 0;
+    font-size: 14px;
+    color: #666;
+}
+.detail-stats span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .detail-description {
     padding: 30px;
     border-top: 1px solid #eee;

@@ -127,21 +127,25 @@ function buildCategoryTree(array $categories, int $parentId = 0): array
 }
 
 /**
- * 获取分类的所有子分类ID(包括自身)
+ * 获取分类的所有子分类ID(包括自身) —— 基于 path 字段，单条SQL
  */
 function getCategoryChildIds(PDO $pdo, int $categoryId): array
 {
-    $ids = [$categoryId];
-
-    $stmt = $pdo->prepare("SELECT id FROM categories WHERE parent_id = ?");
+    // 先拿当前分类的 path
+    $stmt = $pdo->prepare("SELECT path FROM categories WHERE id = ?");
     $stmt->execute([$categoryId]);
-    $children = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    $path = $stmt->fetchColumn();
 
-    foreach ($children as $childId) {
-        $ids = array_merge($ids, getCategoryChildIds($pdo, (int)$childId));
+    if (!$path) {
+        return [$categoryId];
     }
 
-    return $ids;
+    // 用 LIKE 查所有以该 path 开头的子孙分类
+    $stmt = $pdo->prepare("SELECT id FROM categories WHERE path LIKE ?");
+    $stmt->execute([$path . ',%']);
+    $childIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    return array_merge([$categoryId], array_map('intval', $childIds));
 }
 
 //分类处理函数
@@ -157,11 +161,11 @@ function handleCategoryList(): void
     $flat = $_GET['flat'] ?? '0';
     $showHidden = $_GET['show_hidden'] ?? '0';//是否显示隐藏分类
 
-    $sql = "SELECT id, name, parent_id, sort_order, status, created_at FROm categories";
+    $sql = "SELECT id, name, icon, image, description, parent_id, level, path, sort_order, status, created_at, updated_at FROM categories";
     if ($showHidden !== '1') {
         $sql .= " WHERE status = 1";
     }
-    $sql .= " ORDER BY sort_order ASC, id ASC";
+    $sql .= " ORDER BY level ASC, sort_order ASC, id ASC";
 
     $stmt = $pdo->query($sql);
     $categories = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -170,6 +174,7 @@ function handleCategoryList(): void
     foreach ($categories as &$cat) {
         $cat['id'] = (int)$cat['id'];
         $cat['parent_id'] = (int)$cat['parent_id'];
+        $cat['level'] = (int)$cat['level'];
         $cat['sort_order'] = (int)$cat['sort_order'];
         $cat['status'] = (int)$cat['status'];
     }
@@ -196,7 +201,7 @@ function handleCategoryDetail(): void
     }
 
     $pdo = getDB();
-    $stmt = $pdo->prepare("SELECT id, name, parent_id, sort_order, status, created_at, updated_at FROM categories WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT id, name, icon, image, description, parent_id, level, path, sort_order, status, created_at, updated_at FROM categories WHERE id = ?");
     $stmt->execute([$id]);
     $category = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -204,20 +209,27 @@ function handleCategoryDetail(): void
         Response::error('分类不存在', 404);
     }
 
-//获取父类分类名称
-    $sparentName = null;
+    //获取父分类名称
+    $parentName = null;
     if ($category['parent_id'] > 0) {
         $stmt = $pdo->prepare("SELECT name FROM categories WHERE id = ?");
         $stmt->execute([$category['parent_id']]);
         $parent = $stmt->fetch(PDO::FETCH_ASSOC);
-        $sparentName = $parent ? $parent['name'] : null;   
+        $parentName = $parent ? $parent['name'] : null;
     }
+
+    // 获取子分类数量
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM categories WHERE parent_id = ?");
+    $stmt->execute([$id]);
+    $childCount = (int)$stmt->fetchColumn();
 
     $category['id'] = (int)$category['id'];
     $category['parent_id'] = (int)$category['parent_id'];
-    $category['parent_name'] = $sparentName;
+    $category['parent_name'] = $parentName;
+    $category['level'] = (int)$category['level'];
     $category['sort_order'] = (int)$category['sort_order'];
     $category['status'] = (int)$category['status'];
+    $category['child_count'] = $childCount;
 
     Response::success($category, '获取成功');
 }
@@ -234,6 +246,9 @@ function handleCategoryAdd(): void
     $parentId = (int)Request::input('parent_id', 0);
     $sortOrder = (int)Request::input('sort_order', 0);
     $status = (int)Request::input('status', 1);
+    $icon = trim(Request::input('icon', ''));
+    $image = trim(Request::input('image', ''));
+    $description = trim(Request::input('description', ''));
 
     if (empty($name)) {
         Response::error('分类名称不能为空', 400);
@@ -244,13 +259,21 @@ function handleCategoryAdd(): void
 
     $pdo = getDB();
 
-    //检查父分类是否存在
+    // 计算 level 和 path
+    $level = 1;
+    $parentPath = '0';
     if ($parentId > 0) {
-        $stmt = $pdo->prepare("SELECT id FROM categories WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT id, level, path FROM categories WHERE id = ?");
         $stmt->execute([$parentId]);
-        if (!$stmt->fetch()) {
+        $parent = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$parent) {
             Response::error('父分类不存在', 400);
         }
+        if ((int)$parent['level'] >= 3) {
+            Response::error('最多支持三级分类', 400);
+        }
+        $level = (int)$parent['level'] + 1;
+        $parentPath = $parent['path'];
     }
 
     //检查同级是否有重名分类
@@ -260,10 +283,25 @@ function handleCategoryAdd(): void
         Response::error('同级分类已存在相同名称的分类', 400);   
     }
 
-    $stmt = $pdo->prepare("INSERT INTO categories (name, parent_id, sort_order, status) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$name, $parentId, $sortOrder, $status]);
+    $stmt = $pdo->prepare("INSERT INTO categories (name, icon, image, description, parent_id, level, path, sort_order, status) VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)");
+    $stmt->execute([
+        $name,
+        $icon ?: null,
+        $image ?: null,
+        $description ?: null,
+        $parentId,
+        $level,
+        $sortOrder,
+        $status
+    ]);
+    $newId = (int)$pdo->lastInsertId();
 
-    Response::success(['category_id' => (int)$pdo->lastInsertId()], '添加成功', 201);
+    // 更新 path（需要知道自己的 id）
+    $path = $parentPath . ',' . $newId;
+    $stmt = $pdo->prepare("UPDATE categories SET path = ? WHERE id = ?");
+    $stmt->execute([$path, $newId]);
+
+    Response::success(['category_id' => $newId], '添加成功', 201);
 }
 
 /**
@@ -293,10 +331,16 @@ function handleCategoryUpdate(): void
     $parentId = Request::input('parent_id');
     $sortOrder = Request::input('sort_order');
     $status = Request::input('status');
+    $icon = Request::input('icon');
+    $image = Request::input('image');
+    $description = Request::input('description');
 
     $parentId = $parentId !== null ? (int)$parentId : (int)$category['parent_id'];
     $sortOrder = $sortOrder !== null ? (int)$sortOrder : (int)$category['sort_order'];
     $status = $status !== null ? (int)$status : (int)$category['status'];
+    $icon = $icon !== null ? trim($icon) : $category['icon'];
+    $image = $image !== null ? trim($image) : $category['image'];
+    $description = $description !== null ? trim($description) : $category['description'];
 
     if (empty($name)) {
         Response::error('分类名称不能为空', 400);
@@ -325,8 +369,46 @@ function handleCategoryUpdate(): void
         Response::error('同级分类已存在相同名称的分类', 409);
     }
 
-    $stmt = $pdo->prepare("UPDATE categories SET name = ?, parent_id = ?, sort_order = ?, status = ? WHERE id = ?");
-    $stmt->execute([$name, $parentId, $sortOrder, $status, $id]);
+    // 计算新的 level 和 path
+    $oldParentId = (int)$category['parent_id'];
+    $level = (int)$category['level'];
+    $path = $category['path'];
+
+    if ($parentId !== $oldParentId) {
+        // 父分类变了，重新计算 level 和 path
+        if ($parentId === 0) {
+            $level = 1;
+            $path = '0,' . $id;
+        } else {
+            $stmt = $pdo->prepare("SELECT level, path FROM categories WHERE id = ?");
+            $stmt->execute([$parentId]);
+            $newParent = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$newParent) {
+                Response::error('父分类不存在', 400);
+            }
+            if ((int)$newParent['level'] >= 3) {
+                Response::error('最多支持三级分类', 400);
+            }
+            $level = (int)$newParent['level'] + 1;
+            $path = $newParent['path'] . ',' . $id;
+        }
+
+        // 更新所有子孙分类的 path 和 level
+        $oldPath = $category['path'];
+        $stmt = $pdo->prepare("SELECT id, path, level FROM categories WHERE path LIKE ? AND id != ?");
+        $stmt->execute([$oldPath . ',%', $id]);
+        $descendants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($descendants as $desc) {
+            $newDescPath = str_replace($oldPath, $path, $desc['path']);
+            $newDescLevel = substr_count($newDescPath, ',');
+            $stmtUp = $pdo->prepare("UPDATE categories SET path = ?, level = ? WHERE id = ?");
+            $stmtUp->execute([$newDescPath, $newDescLevel, $desc['id']]);
+        }
+    }
+
+    $stmt = $pdo->prepare("UPDATE categories SET name = ?, icon = ?, image = ?, description = ?, parent_id = ?, level = ?, path = ?, sort_order = ?, status = ? WHERE id = ?");
+    $stmt->execute([$name, $icon ?: null, $image ?: null, $description ?: null, $parentId, $level, $path, $sortOrder, $status, $id]);
 
     Response::success(null, '更新成功');
 }
@@ -395,6 +477,9 @@ function handleProductList(): void
     $sortBy = $_GET['sort_by'] ?? 'id';
     $sortOrder = strtolower($_GET['sort_order'] ?? 'DESC');
     $hasStock = $_GET['has_stock'] ?? '';//是否只显示有库存的商品
+    $isRecommend = $_GET['is_recommend'] ?? '';
+    $isNew = $_GET['is_new'] ?? '';
+    $isHot = $_GET['is_hot'] ?? '';
 
     //构建查询条件
     $where = [];
@@ -435,11 +520,22 @@ function handleProductList(): void
     if ($hasStock === '1') {
         $where[] = "COALESCE(i.stock, 0) - COALESCE(i.locked_stock, 0) > 0";
     }
+
+    // 推荐/新品/热销筛选
+    if ($isRecommend === '1') {
+        $where[] = "p.is_recommend = 1";
+    }
+    if ($isNew === '1') {
+        $where[] = "p.is_new = 1";
+    }
+    if ($isHot === '1') {
+        $where[] = "p.is_hot = 1";
+    }
     
     $whereClause = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     
     // 排序字段白名单
-    $allowedSortBy = ['id', 'name', 'price', 'created_at', 'updated_at'];
+    $allowedSortBy = ['id', 'name', 'price', 'created_at', 'updated_at', 'sales_count', 'rating', 'view_count'];
     if (!in_array($sortBy, $allowedSortBy)) {
         $sortBy = 'id';
     }
@@ -461,8 +557,10 @@ function handleProductList(): void
     $offset = ($page - 1) * $pageSize;
     
     // 获取列表
-    $sql = "SELECT p.id, p.name, p.cover_image, p.price, p.original_price, 
-                   p.category_id, c.name as category_name, p.status, 
+    $sql = "SELECT p.id, p.spu_no, p.name, p.subtitle, p.cover_image, p.price, p.original_price, 
+                   p.category_id, p.brand_id, c.name as category_name, p.status, 
+                   p.sales_count, p.view_count, p.rating,
+                   p.is_recommend, p.is_new, p.is_hot,
                    p.created_at, p.updated_at,
                    COALESCE(i.stock, 0) as stock,
                    COALESCE(i.locked_stock, 0) as locked_stock
@@ -483,7 +581,14 @@ function handleProductList(): void
         $product['price'] = (float)$product['price'];
         $product['original_price'] = $product['original_price'] ? (float)$product['original_price'] : null;
         $product['category_id'] = $product['category_id'] ? (int)$product['category_id'] : null;
+        $product['brand_id'] = $product['brand_id'] ? (int)$product['brand_id'] : null;
         $product['status'] = (int)$product['status'];
+        $product['sales_count'] = (int)$product['sales_count'];
+        $product['view_count'] = (int)$product['view_count'];
+        $product['rating'] = (float)$product['rating'];
+        $product['is_recommend'] = (int)$product['is_recommend'];
+        $product['is_new'] = (int)$product['is_new'];
+        $product['is_hot'] = (int)$product['is_hot'];
         $product['stock'] = (int)$product['stock'];
         $product['locked_stock'] = (int)$product['locked_stock'];
         $product['available_stock'] = $product['stock'] - $product['locked_stock'];
@@ -531,12 +636,22 @@ function handleProductList(): void
         Response::error('商品不存在', 404);
     }
 
+    // 浏览量+1
+    $pdo->prepare("UPDATE products SET view_count = view_count + 1 WHERE id = ?")->execute([$id]);
+
     //转换数据类型
     $product['id'] = (int)$product['id'];
     $product['price'] = (float)$product['price'];
     $product['original_price'] = $product['original_price'] ? (float)$product['original_price'] : null;
     $product['category_id'] = $product['category_id'] ? (int)$product['category_id'] : null;
+    $product['brand_id'] = $product['brand_id'] ? (int)$product['brand_id'] : null;
     $product['status'] = (int)$product['status'];
+    $product['sales_count'] = (int)$product['sales_count'];
+    $product['view_count'] = (int)$product['view_count'] + 1;
+    $product['rating'] = (float)$product['rating'];
+    $product['is_recommend'] = (int)$product['is_recommend'];
+    $product['is_new'] = (int)$product['is_new'];
+    $product['is_hot'] = (int)$product['is_hot'];
     $product['stock'] = (int)$product['stock'];
     $product['locked_stock'] = (int)$product['locked_stock'];
     $product['available_stock'] = $product['stock'] - $product['locked_stock'];
@@ -554,13 +669,20 @@ function handleProductAdd(): void
     requireAdmin();
 
     $name = trim(Request::input('name', ''));
+    $subtitle = trim(Request::input('subtitle', ''));
+    $keywords = trim(Request::input('keywords', ''));
     $description = trim(Request::input('description', ''));
     $coverImage = trim(Request::input('cover_image', ''));
     $price = Request::input('price', '');
     $originalPrice = Request::input('original_price', '');
     $categoryId = Request::input('category_id');
+    $brandId = Request::input('brand_id');
     $status = (int)Request::input('status', 1);
     $initialStock = (int)Request::input('initial_stock', 0);
+    $isRecommend = (int)Request::input('is_recommend', 0);
+    $isNew = (int)Request::input('is_new', 0);
+    $isHot = (int)Request::input('is_hot', 0);
+    $spuNo = trim(Request::input('spu_no', ''));
 
     //验证
     if (empty($name)) {
@@ -588,19 +710,29 @@ function handleProductAdd(): void
         }
     }
     
+    // 检查品牌ID
+    $brandId = $brandId !== null && $brandId !== '' ? (int)$brandId : null;
+    
     $pdo->beginTransaction();
     try {
         //输入商品
-        $stmt = $pdo->prepare("INSERT INTO products (name, description, cover_image, price, original_price, category_id, status) 
-                               VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO products (spu_no, name, subtitle, keywords, description, cover_image, price, original_price, category_id, brand_id, status, is_recommend, is_new, is_hot) 
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([
+            $spuNo ?: null,
             $name,
+            $subtitle ?: null,
+            $keywords ?: null,
             $description ?: null,
             $coverImage ?: null,
             (float)$price,
             $originalPrice !== '' ? (float)$originalPrice : null,
             $categoryId,
-            $status
+            $brandId,
+            $status,
+            $isRecommend,
+            $isNew,
+            $isHot
         ]);
         $productId = (int)$pdo->lastInsertId();
 
@@ -642,12 +774,19 @@ function handleProductUpdate(): void
 
     //获取更新字段
     $name = Request::input('name');
+    $subtitle = Request::input('subtitle');
+    $keywords = Request::input('keywords');
     $description = Request::input('description');
     $coverImage = Request::input('cover_image');
     $price = Request::input('price');
     $originalPrice = Request::input('original_price');
     $categoryId = Request::input('category_id');
+    $brandId = Request::input('brand_id');
     $status = Request::input('status');
+    $isRecommend = Request::input('is_recommend');
+    $isNew = Request::input('is_new');
+    $isHot = Request::input('is_hot');
+    $spuNo = Request::input('spu_no');
 
     //构建更新
     $updates = [];
@@ -663,6 +802,21 @@ function handleProductUpdate(): void
         }
         $updates[] = "name = ?";
         $params[] = $name;
+    }
+
+    if ($subtitle !== null) {
+        $updates[] = "subtitle = ?";
+        $params[] = trim($subtitle) ?: null;
+    }
+
+    if ($keywords !== null) {
+        $updates[] = "keywords = ?";
+        $params[] = trim($keywords) ?: null;
+    }
+
+    if ($spuNo !== null) {
+        $updates[] = "spu_no = ?";
+        $params[] = trim($spuNo) ?: null;
     }
 
     if ($description !== null) {
@@ -711,6 +865,26 @@ function handleProductUpdate(): void
     if ($status !== null) {
         $updates[] = "status = ?";
         $params[] = (int)$status;
+    }
+
+    if ($brandId !== null) {
+        $updates[] = "brand_id = ?";
+        $params[] = ($brandId !== '' && $brandId !== '0') ? (int)$brandId : null;
+    }
+
+    if ($isRecommend !== null) {
+        $updates[] = "is_recommend = ?";
+        $params[] = (int)$isRecommend;
+    }
+
+    if ($isNew !== null) {
+        $updates[] = "is_new = ?";
+        $params[] = (int)$isNew;
+    }
+
+    if ($isHot !== null) {
+        $updates[] = "is_hot = ?";
+        $params[] = (int)$isHot;
     }
 
     if (empty($updates)) {

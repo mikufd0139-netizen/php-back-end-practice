@@ -59,6 +59,14 @@ const OrderAPI = {
         return this.request('cart_clear', 'POST');
     },
 
+    async selectCartItem(cartId, selected) {
+        return this.request('cart_select', 'POST', { cart_id: cartId, selected });
+    },
+
+    async selectAllCart(selectAll) {
+        return this.request('cart_select', 'POST', { select_all: selectAll });
+    },
+
     // ========== 收货地址接口 ==========
 
     async getAddressList() {

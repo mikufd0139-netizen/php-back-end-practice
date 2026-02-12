@@ -112,7 +112,13 @@
                         }
                     </div>
                     <div class="detail-info">
-                        <h1 class="detail-name">${escapeHtml(product.name)}</h1>
+                        <h1 class="detail-name">
+                            ${product.is_recommend ? '<span class="product-tag tag-recommend">推荐</span>' : ''}
+                            ${product.is_new ? '<span class="product-tag tag-new">新品</span>' : ''}
+                            ${product.is_hot ? '<span class="product-tag tag-hot">热销</span>' : ''}
+                            ${escapeHtml(product.name)}
+                        </h1>
+                        ${product.subtitle ? `<p class="detail-subtitle">${escapeHtml(product.subtitle)}</p>` : ''}
                         <p class="detail-category">分类：${product.category_name || '未分类'}</p>
                         
                         <div class="detail-price-section">
@@ -125,6 +131,12 @@
                                 }
                                 ${discountHtml}
                             </div>
+                        </div>
+
+                        <div class="detail-stats">
+                            <span>⭐ ${product.rating || '5.0'}分</span>
+                            <span>📦 已售 ${product.sales_count || 0}</span>
+                            <span>👀 ${product.view_count || 0}次浏览</span>
                         </div>
 
                         <div class="detail-stock">
@@ -146,7 +158,7 @@
                         </div>
 
                         <div class="detail-meta">
-                            <p>商品ID：${product.id}</p>
+                            ${product.spu_no ? `<p>商品编号：${escapeHtml(product.spu_no)}</p>` : `<p>商品ID：${product.id}</p>`}
                             <p>上架时间：${formatDate(product.created_at)}</p>
                         </div>
                     </div>

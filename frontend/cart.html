@@ -70,11 +70,21 @@
                 <div class="cart-container">
                     <div class="cart-list">
                         <div class="cart-header">
+                            <label class="cart-select-all">
+                                <input type="checkbox" id="selectAllCheckbox" 
+                                       ${data.items.every(i => i.selected) ? 'checked' : ''}
+                                       onchange="handleSelectAll(this.checked)" />
+                                全选
+                            </label>
                             <h2>购物车 (${data.item_count}件商品)</h2>
                             <button class="cart-clear-btn" onclick="handleClearCart()">🗑️ 清空购物车</button>
                         </div>
                         ${data.items.map(item => `
                             <div class="cart-item" id="cartItem_${item.id}" data-valid="${item.is_valid}">
+                                <label class="cart-item-checkbox">
+                                    <input type="checkbox" ${item.selected ? 'checked' : ''} 
+                                           onchange="handleSelect(${item.id}, this.checked)" />
+                                </label>
                                 <div class="cart-item-image">
                                     ${item.cover_image
                                         ? `<img src="${item.cover_image}" alt="${escapeHtml(item.name)}" />`
@@ -138,6 +148,16 @@
             } else {
                 alert(result.message);
             }
+        }
+
+        async function handleSelect(cartId, checked) {
+            await OrderAPI.selectCartItem(cartId, checked ? 1 : 0);
+            loadCart();
+        }
+
+        async function handleSelectAll(checked) {
+            await OrderAPI.selectAllCart(checked ? 1 : 0);
+            loadCart();
         }
 
         async function handleClearCart() {

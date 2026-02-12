@@ -213,6 +213,12 @@ body {
     border: 1px solid #b7eb8f;
 }
 
+.tag-primary {
+    background-color: #e6f7ff;
+    color: #1890ff;
+    border: 1px solid #91d5ff;
+}
+
 .tag-danger {
     background-color: #fff2f0;
     color: #ff4d4f;

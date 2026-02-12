@@ -141,6 +141,31 @@
 }
 .cart-item-delete:hover { color: #ff4d4f; }
 
+/* 购物车选中 */
+.cart-select-all {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #333;
+    cursor: pointer;
+}
+.cart-select-all input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+.cart-item-checkbox {
+    display: flex;
+    align-items: center;
+    padding-right: 10px;
+}
+.cart-item-checkbox input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
 /* 购物车汇总 */
 .cart-summary {
     background: #fff;

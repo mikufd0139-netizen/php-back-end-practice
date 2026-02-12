@@ -64,6 +64,9 @@ switch ($action) {
     case 'cart_clear':
         handleCartClear();
         break;
+    case 'cart_select':
+        handleCartSelect();
+        break;
     // 收货地址接口
     case 'address_list':
         handleAddressList();
@@ -203,7 +206,7 @@ function handleCartList(): void
     $userId = Auth::getUserId();
     $pdo = getDB();
 
-    $sql = "SELECT c.id, c.product_id, c.quantity, c.created_at,
+    $sql = "SELECT c.id, c.product_id, c.quantity, c.selected, c.created_at,
                    p.name, p.cover_image, p.price, p.original_price, p.status as product_status,
                    COALESCE(i.stock, 0) - COALESCE(i.locked_stock, 0) as available_stock
             FROM cart_items c
@@ -223,6 +226,7 @@ function handleCartList(): void
         $item['id'] = (int)$item['id'];
         $item['product_id'] = (int)$item['product_id'];
         $item['quantity'] = (int)$item['quantity'];
+        $item['selected'] = (int)$item['selected'];
         $item['price'] = (float)$item['price'];
         $item['original_price'] = $item['original_price'] ? (float)$item['original_price'] : null;
         $item['product_status'] = (int)$item['product_status'];
@@ -230,7 +234,7 @@ function handleCartList(): void
         $item['subtotal'] = $item['price'] * $item['quantity'];
         $item['is_valid'] = $item['product_status'] == 1 && $item['available_stock'] >= $item['quantity'];
         
-        if ($item['is_valid']) {
+        if ($item['is_valid'] && $item['selected'] == 1) {
             $totalAmount += $item['subtotal'];
             $totalQuantity += $item['quantity'];
         }
@@ -399,6 +403,38 @@ function handleCartClear(): void
     $stmt->execute([$userId]);
     
     Response::success(null, '购物车已清空');
+}
+
+/**
+ * 购物车选中/取消选中
+ */
+function handleCartSelect(): void
+{
+    Request::allowMethods('POST');
+    Auth::requireLogin();
+
+    $userId = Auth::getUserId();
+    $cartId = Request::input('cart_id');     // 单个购物车项ID
+    $selected = Request::input('selected');  // 1选中 0取消
+    $selectAll = Request::input('select_all'); // 全选/全不选
+
+    $pdo = getDB();
+
+    if ($selectAll !== null) {
+        // 全选/全不选
+        $stmt = $pdo->prepare("UPDATE cart_items SET selected = ? WHERE user_id = ?");
+        $stmt->execute([(int)$selectAll, $userId]);
+        Response::success(null, (int)$selectAll ? '已全选' : '已取消全选');
+    }
+
+    if ($cartId === null || $selected === null) {
+        Response::error('参数不完整', 400);
+    }
+
+    $stmt = $pdo->prepare("UPDATE cart_items SET selected = ? WHERE id = ? AND user_id = ?");
+    $stmt->execute([(int)$selected, (int)$cartId, $userId]);
+
+    Response::success(null, '更新成功');
 }
 
 // 收货地址接口
@@ -833,7 +869,7 @@ function handleOrderCreate(): void
     
     //获取购物车商品
      $sql = "SELECT c.id as cart_id, c.product_id, c.quantity,
-                   p.name, p.price, p.status as product_status,
+                   p.name, p.price, p.cover_image, p.status as product_status,
                    COALESCE(i.stock, 0) - COALESCE(i.locked_stock, 0) as available_stock
             FROM cart_items c
             JOIN products p ON c.product_id = p.id
@@ -875,6 +911,7 @@ function handleOrderCreate(): void
         $orderItems[] = [
             'product_id' => $item['product_id'],
             'product_name' => $item['name'],
+            'product_image' => $item['cover_image'],
             'price' => $item['price'],
             'quantity' => $item['quantity']
         ];
@@ -898,14 +935,14 @@ function handleOrderCreate(): void
             'full_address' => $address['province'] . $address['city'] . $address['region'] . $address['detail_address']
         ], JSON_UNESCAPED_UNICODE);
         
-        $stmt = $pdo->prepare("INSERT INTO orders (order_no, user_id, total_amount, status, snap_address) VALUES (?, ?, ?, 0, ?)");
-        $stmt->execute([$orderNo, $userId, $totalAmount, $snapAddress]);
+        $stmt = $pdo->prepare("INSERT INTO orders (order_no, user_id, total_amount, status, snap_address, remark) VALUES (?, ?, ?, 0, ?, ?)");
+        $stmt->execute([$orderNo, $userId, $totalAmount, $snapAddress, $remark ?: null]);
         $orderId = (int)$pdo->lastInsertId();
         
         // 创建订单商品
-         $stmt = $pdo->prepare("INSERT INTO order_items (order_id, product_id, product_name, price, quantity) VALUES (?, ?, ?, ?, ?)");
+         $stmt = $pdo->prepare("INSERT INTO order_items (order_id, product_id, product_name, product_image, price, quantity) VALUES (?, ?, ?, ?, ?, ?)");
         foreach ($orderItems as $item) {
-            $stmt->execute([$orderId, $item['product_id'], $item['product_name'], $item['price'], $item['quantity']]);
+            $stmt->execute([$orderId, $item['product_id'], $item['product_name'], $item['product_image'], $item['price'], $item['quantity']]);
         }
         
         // 锁定库存
@@ -1018,8 +1055,16 @@ function handleOrderConfirm(): void
         Response::error('只能确认待收货的订单', 400);
     }
     
-    $stmt = $pdo->prepare("UPDATE orders SET status = 3 WHERE id = ?");
+    $stmt = $pdo->prepare("UPDATE orders SET status = 3, complete_time = NOW() WHERE id = ?");
     $stmt->execute([$orderId]);
+
+    // 更新商品销量
+    $stmt = $pdo->prepare("SELECT product_id, quantity FROM order_items WHERE order_id = ?");
+    $stmt->execute([$orderId]);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($items as $item) {
+        $pdo->prepare("UPDATE products SET sales_count = sales_count + ? WHERE id = ?")->execute([$item['quantity'], $item['product_id']]);
+    }
     
     Response::success(null, '确认收货成功');
 }
@@ -1271,7 +1316,7 @@ function handleAdminOrderShip(): void
         Response::error('只能对待发货的订单进行发货操作', 400);
     }
     
-    $stmt = $pdo->prepare("UPDATE orders SET status = 2 WHERE id = ?");
+    $stmt = $pdo->prepare("UPDATE orders SET status = 2, ship_time = NOW() WHERE id = ?");
     $stmt->execute([$orderId]);
     
     Response::success(null, '发货成功');
@@ -1407,7 +1452,7 @@ function handlePayOrder(): void
         $stmt->execute([$orderId, $transactionId, $paymentMethod, $order['total_amount']]);
         
         // 更新订单状态为待发货
-        $stmt = $pdo->prepare("UPDATE orders SET status = 1 WHERE id = ?");
+        $stmt = $pdo->prepare("UPDATE orders SET status = 1, pay_time = NOW() WHERE id = ?");
         $stmt->execute([$orderId]);
         
         // 扣减库存（将锁定库存转为实际扣减）
