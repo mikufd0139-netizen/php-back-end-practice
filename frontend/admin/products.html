@@ -316,9 +316,13 @@
                 
                 const sorted = [...categories].sort((a, b) => (a.path || '').localeCompare(b.path || ''));
                 sorted.forEach(cat => {
-                    const indent = '　'.repeat((cat.level || 1) - 1);
-                    filterSelect.innerHTML += `<option value="${cat.id}">${indent}${escapeHtml(cat.name)}</option>`;
-                    productSelect.innerHTML += `<option value="${cat.id}">${indent}${escapeHtml(cat.name)}</option>`;
+                    const level = cat.level || 1;
+                    let prefix = '';
+                    if (level === 2) prefix = '　├─ ';
+                    if (level === 3) prefix = '　　└─ ';
+                    const text = `${prefix}${escapeHtml(cat.name)}`;
+                    filterSelect.innerHTML += `<option value="${cat.id}">${text}</option>`;
+                    productSelect.innerHTML += `<option value="${cat.id}">${text}</option>`;
                 });
             }
         }

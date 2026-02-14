@@ -122,8 +122,13 @@
             const result = await ProductAPI.getCategoryList(true); // 扁平结构
             if (result.success) {
                 const select = document.getElementById('filterCategory');
-                result.data.forEach(cat => {
-                    const prefix = cat.parent_id > 0 ? '　├─ ' : '';
+                // 按 path 排序确保父子分类位置正确
+                const sorted = result.data.sort((a, b) => (a.path || '').localeCompare(b.path || ''));
+                sorted.forEach(cat => {
+                    const level = cat.level || 1;
+                    let prefix = '';
+                    if (level === 2) prefix = '　├─ ';
+                    if (level === 3) prefix = '　　└─ ';
                     select.innerHTML += `<option value="${cat.id}">${prefix}${cat.name}</option>`;
                 });
             }

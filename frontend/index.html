@@ -105,6 +105,14 @@
             font-size: 14px;
             font-weight: 500;
         }
+        .category-sub {
+            font-size: 12px;
+            color: #999;
+            margin-top: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .user-welcome {
             background: #fff;
             padding: 20px;
@@ -276,8 +284,11 @@
             if (result.success && result.data.length > 0) {
                 grid.innerHTML = result.data.slice(0, 8).map((cat, index) => `
                     <a href="products.html?category=${cat.id}" class="category-card">
-                        <div class="category-icon">${categoryIcons[index % categoryIcons.length]}</div>
+                        <div class="category-icon">${cat.icon || categoryIcons[index % categoryIcons.length]}</div>
                         <div class="category-name">${escapeHtml(cat.name)}</div>
+                        ${cat.children && cat.children.length > 0
+                            ? `<div class="category-sub">${cat.children.slice(0, 3).map(c => c.name).join(' / ')}</div>`
+                            : ''}
                     </a>
                 `).join('');
             } else {
