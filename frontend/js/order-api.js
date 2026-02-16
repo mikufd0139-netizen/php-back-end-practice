@@ -111,6 +111,12 @@ const OrderAPI = {
         return this.request('order_create', 'POST', data);
     },
 
+    async directBuy(productId, quantity, skuId, addressId, remark = '') {
+        const data = { product_id: productId, quantity, address_id: addressId, remark };
+        if (skuId) data.sku_id = skuId;
+        return this.request('order_direct_create', 'POST', data);
+    },
+
     async cancelOrder(orderId) {
         return this.request('order_cancel', 'POST', { order_id: orderId });
     },

@@ -28,14 +28,30 @@
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/order-api.js"></script>
+    <script src="js/product-api.js"></script>
     <script>
         let selectedAddressId = 0;
         let cartData = null;
+        let directBuyData = null;
 
         document.addEventListener('DOMContentLoaded', function() {
             if (!Auth.requireLogin()) return;
             updateNavbar();
-            loadCheckoutData();
+
+            // 判断是购物车结算还是直接购买
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('mode') === 'direct') {
+                const productId = parseInt(urlParams.get('product_id'));
+                const quantity = parseInt(urlParams.get('quantity')) || 1;
+                const skuId = parseInt(urlParams.get('sku_id')) || 0;
+                if (productId > 0) {
+                    loadDirectBuyData(productId, quantity, skuId);
+                } else {
+                    loadCheckoutData();
+                }
+            } else {
+                loadCheckoutData();
+            }
         });
 
         function updateNavbar() {
@@ -169,6 +185,126 @@
             }
         }
 
+        // 立即购买模式：加载商品信息并渲染
+        async function loadDirectBuyData(productId, quantity, skuId) {
+            const container = document.getElementById('checkoutContent');
+
+            const [productResult, addrResult] = await Promise.all([
+                ProductAPI.getProductDetail(productId),
+                OrderAPI.getAddressList()
+            ]);
+
+            if (!productResult.success) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">❌</div>
+                        <p>商品信息加载失败</p>
+                        <a href="products.html" class="btn btn-primary">去逛逛</a>
+                    </div>`;
+                return;
+            }
+
+            const product = productResult.data;
+            const addresses = addrResult.success ? addrResult.data : [];
+
+            let itemPrice = parseFloat(product.price);
+            let coverImage = product.cover_image;
+            let skuName = '';
+
+            if (skuId > 0 && product.skus) {
+                const sku = product.skus.find(s => s.id === skuId);
+                if (sku) {
+                    itemPrice = parseFloat(sku.price);
+                    if (sku.cover_image) coverImage = sku.cover_image;
+                    if (sku.attr_text) {
+                        skuName = sku.attr_text.replace(/;/g, ' | ');
+                    } else if (sku.attributes) {
+                        skuName = sku.attributes.map(a => a.attr_name + ':' + a.value).join(' | ');
+                    }
+                }
+            }
+
+            const totalAmount = (itemPrice * quantity).toFixed(2);
+            directBuyData = { productId, skuId: skuId || null, quantity, itemPrice, totalAmount };
+
+            const defaultAddr = addresses.find(a => a.is_default);
+            if (defaultAddr) selectedAddressId = defaultAddr.id;
+            else if (addresses.length > 0) selectedAddressId = addresses[0].id;
+
+            container.innerHTML = `
+                <div class="checkout-section">
+                    <div class="checkout-section-header">
+                        <h3>📍 收货地址</h3>
+                        <a href="addresses.html" style="color:#007bff;text-decoration:none;font-size:13px;">管理地址</a>
+                    </div>
+                    <div class="checkout-section-body">
+                        ${addresses.length > 0 ? `
+                            <div class="address-select-list">
+                                ${addresses.map(addr => `
+                                    <div class="address-select-item ${addr.id === selectedAddressId ? 'selected' : ''}" 
+                                         onclick="selectAddress(${addr.id})">
+                                        <input type="radio" name="address" value="${addr.id}" 
+                                               ${addr.id === selectedAddressId ? 'checked' : ''} />
+                                        <div class="address-select-info">
+                                            <div class="name-phone">
+                                                ${escapeHtml(addr.name)} ${addr.phone}
+                                                ${addr.is_default ? '<span style="color:#007bff;font-size:12px;margin-left:8px;">[默认]</span>' : ''}
+                                            </div>
+                                            <div class="addr-text">${escapeHtml(addr.full_address)}</div>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : `
+                            <div style="text-align:center;padding:20px;color:#999;">
+                                <p>暂无收货地址</p>
+                                <a href="addresses.html" class="btn btn-primary" style="width:auto;display:inline-block;padding:8px 20px;margin-top:10px;">添加地址</a>
+                            </div>
+                        `}
+                    </div>
+                </div>
+
+                <div class="checkout-section">
+                    <div class="checkout-section-header">
+                        <h3>🛍️ 商品清单</h3>
+                    </div>
+                    <div class="checkout-section-body">
+                        <div class="checkout-item">
+                            <div class="checkout-item-img">
+                                ${coverImage ? `<img src="${coverImage}" />` : '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:12px;">无图</div>'}
+                            </div>
+                            <div class="checkout-item-name">
+                                ${escapeHtml(product.name)}
+                                ${skuName ? `<div style="color:#999;font-size:12px;margin-top:4px;">${escapeHtml(skuName)}</div>` : ''}
+                            </div>
+                            <div class="checkout-item-price">¥${itemPrice.toFixed(2)}</div>
+                            <div class="checkout-item-qty">×${quantity}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkout-section">
+                    <div class="checkout-section-body">
+                        <div class="form-group" style="margin:0;">
+                            <label>订单备注</label>
+                            <input type="text" id="orderRemark" placeholder="选填，可填写特殊需求" 
+                                   style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:4px;font-size:14px;" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="checkout-bar">
+                    <div class="checkout-total">
+                        共 <strong>${quantity}</strong> 件商品，合计：
+                        <span class="total-price">¥${totalAmount}</span>
+                    </div>
+                    <button class="btn-submit-order" onclick="submitOrder()" ${addresses.length === 0 ? 'disabled' : ''}>
+                        提交订单
+                    </button>
+                </div>
+            `;
+        }
+
         async function submitOrder() {
             if (!selectedAddressId) {
                 alert('请选择收货地址');
@@ -179,10 +315,21 @@
 
             if (!confirm('确认提交订单？')) return;
 
-            const result = await OrderAPI.createOrder(selectedAddressId, null, remark);
+            let result;
+            if (directBuyData) {
+                result = await OrderAPI.directBuy(
+                    directBuyData.productId,
+                    directBuyData.quantity,
+                    directBuyData.skuId,
+                    selectedAddressId,
+                    remark
+                );
+            } else {
+                result = await OrderAPI.createOrder(selectedAddressId, null, remark);
+            }
+
             if (result.success) {
                 alert('订单创建成功！');
-                // 跳转到订单详情（可支付）
                 window.location.href = `order-detail.html?id=${result.data.order_id}`;
             } else {
                 alert(result.message);

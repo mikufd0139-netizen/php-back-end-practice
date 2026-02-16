@@ -22,6 +22,7 @@
  * GET    ?action=order_list                 获取订单列表
  * GET    ?action=order_detail&id=1          获取订单详情
  * POST   ?action=order_create               创建订单(从购物车)
+ * POST   ?action=order_direct_create         立即购买(不经过购物车)
  * POST   ?action=order_cancel               取消订单
  * POST   ?action=order_confirm              确认收货
  * POST   ?action=order_delete               删除订单
@@ -96,6 +97,9 @@ switch ($action) {
         break;
     case 'order_create':
         handleOrderCreate();
+        break;
+    case 'order_direct_create':
+        handleOrderDirectCreate();
         break;
     case 'order_cancel':
         handleOrderCancel();
@@ -1020,7 +1024,7 @@ function handleOrderCreate(): void
         }
         
         // 锁定库存（优先锁定SKU库存，同时锁定inventory库存）
-        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 4, ?, ?, ?, ?, '订单锁定库存')");
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_no, reason) VALUES (?, 4, ?, ?, ?, ?, '订单锁定库存')");
         foreach ($cartItems as $item) {
             if ($item['sku_id']) {
                 // 锁定SKU库存
@@ -1032,7 +1036,7 @@ function handleOrderCreate(): void
                 $stmt->execute([$item['quantity'], $item['sku_id']]);
 
                 // 同时记录库存日志
-                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock, $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock, $orderNo]);
             } else {
                 // 无SKU时锁定inventory库存
                 $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
@@ -1043,7 +1047,7 @@ function handleOrderCreate(): void
                 $stmt->execute([$item['quantity'], $item['product_id']]);
 
                 // 记录库存日志
-                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock, $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock, $orderNo]);
             }
         }
 
@@ -1054,6 +1058,153 @@ function handleOrderCreate(): void
         
         $pdo->commit();
         
+        Response::success([
+            'order_id' => $orderId,
+            'order_no' => $orderNo,
+            'total_amount' => $totalAmount
+        ], '订单创建成功', 201);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        Response::error('订单创建失败: ' . $e->getMessage(), 500);
+    }
+}
+
+/**
+ * 立即购买 - 直接创建订单（不经过购物车）
+ * 参数：product_id, quantity, sku_id(可选), address_id, remark(可选)
+ */
+function handleOrderDirectCreate(): void
+{
+    Request::allowMethods('POST');
+    Auth::requireLogin();
+
+    $userId = Auth::getUserId();
+    $productId = (int)Request::input('product_id', 0);
+    $skuId = Request::input('sku_id');
+    $skuId = $skuId ? (int)$skuId : null;
+    $quantity = (int)Request::input('quantity', 1);
+    $addressId = (int)Request::input('address_id', 0);
+    $remark = trim(Request::input('remark', ''));
+
+    if ($productId <= 0) {
+        Response::error('商品ID无效', 400);
+    }
+    if ($quantity <= 0) {
+        Response::error('购买数量必须大于0', 400);
+    }
+    if ($addressId <= 0) {
+        Response::error('请选择收货地址', 400);
+    }
+
+    $pdo = getDB();
+
+    // 验证收货地址
+    $stmt = $pdo->prepare("SELECT * FROM addresses WHERE id = ? AND user_id = ?");
+    $stmt->execute([$addressId, $userId]);
+    $address = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$address) {
+        Response::error('收货地址不存在', 400);
+    }
+
+    // 查询商品信息
+    $stmt = $pdo->prepare("SELECT p.*, COALESCE(i.stock, 0) as inv_stock, COALESCE(i.locked_stock, 0) as inv_locked_stock
+                           FROM products p
+                           LEFT JOIN inventory i ON p.id = i.product_id
+                           WHERE p.id = ?");
+    $stmt->execute([$productId]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$product) {
+        Response::error('商品不存在', 404);
+    }
+    if ($product['status'] != 1) {
+        Response::error('商品已下架', 400);
+    }
+
+    // 确定价格、库存、封面图、规格文字
+    $actualPrice = (float)$product['price'];
+    $actualImage = $product['cover_image'];
+    $skuAttrText = '';
+
+    if ($skuId) {
+        $stmt = $pdo->prepare("SELECT * FROM product_skus WHERE id = ? AND product_id = ?");
+        $stmt->execute([$skuId, $productId]);
+        $sku = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$sku) {
+            Response::error('商品规格不存在', 404);
+        }
+        if ($sku['status'] != 1) {
+            Response::error('商品规格已下架', 400);
+        }
+
+        $availableStock = (int)$sku['stock'] - (int)($sku['locked_stock'] ?? 0);
+        if ($quantity > $availableStock) {
+            Response::error("库存不足，当前可购买 {$availableStock} 件", 400);
+        }
+
+        $actualPrice = (float)$sku['price'];
+        $skuAttrText = $sku['attr_text'] ?? '';
+        if (!empty($sku['cover_image'])) {
+            $actualImage = $sku['cover_image'];
+        }
+    } else {
+        $availableStock = (int)$product['inv_stock'] - (int)$product['inv_locked_stock'];
+        if ($quantity > $availableStock) {
+            Response::error("库存不足，当前可购买 {$availableStock} 件", 400);
+        }
+    }
+
+    $totalAmount = round($actualPrice * $quantity, 2);
+
+    $pdo->beginTransaction();
+
+    try {
+        // 创建订单
+        $orderNo = generateOrderNO();
+        $snapAddress = json_encode([
+            'name' => $address['name'],
+            'phone' => $address['phone'],
+            'province' => $address['province'],
+            'city' => $address['city'],
+            'region' => $address['region'],
+            'detail_address' => $address['detail_address'],
+            'full_address' => $address['province'] . $address['city'] . $address['region'] . $address['detail_address']
+        ], JSON_UNESCAPED_UNICODE);
+
+        $stmt = $pdo->prepare("INSERT INTO orders (order_no, user_id, total_amount, status, snap_address, remark) VALUES (?, ?, ?, 0, ?, ?)");
+        $stmt->execute([$orderNo, $userId, $totalAmount, $snapAddress, $remark ?: null]);
+        $orderId = (int)$pdo->lastInsertId();
+
+        // 创建订单商品
+        $stmt = $pdo->prepare("INSERT INTO order_items (order_id, product_id, sku_id, product_name, product_image, price, quantity, sku_attr_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$orderId, $productId, $skuId, $product['name'], $actualImage, $actualPrice, $quantity, $skuAttrText]);
+
+        // 锁定库存
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_no, reason) VALUES (?, 4, ?, ?, ?, ?, '订单锁定库存')");
+
+        if ($skuId) {
+            $stk = $pdo->prepare("SELECT stock FROM product_skus WHERE id = ?");
+            $stk->execute([$skuId]);
+            $beforeStock = (int)($stk->fetchColumn() ?: 0);
+
+            $stmt = $pdo->prepare("UPDATE product_skus SET locked_stock = locked_stock + ? WHERE id = ?");
+            $stmt->execute([$quantity, $skuId]);
+
+            $logStmt->execute([$productId, $quantity, $beforeStock, $beforeStock, $orderNo]);
+        } else {
+            $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
+            $stk->execute([$productId]);
+            $beforeStock = (int)($stk->fetchColumn() ?: 0);
+
+            $stmt = $pdo->prepare("UPDATE inventory SET locked_stock = locked_stock + ? WHERE product_id = ?");
+            $stmt->execute([$quantity, $productId]);
+
+            $logStmt->execute([$productId, $quantity, $beforeStock, $beforeStock, $orderNo]);
+        }
+
+        $pdo->commit();
+
         Response::success([
             'order_id' => $orderId,
             'order_no' => $orderNo,
@@ -1107,7 +1258,7 @@ function handleOrderCancel(): void
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 5, ?, ?, ?, ?, '订单取消释放库存')");
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_no, reason) VALUES (?, 5, ?, ?, ?, ?, '订单取消释放库存')");
         foreach ($items as $item) {
             if ($item['sku_id']) {
                 // 释放SKU库存
@@ -1118,7 +1269,7 @@ function handleOrderCancel(): void
                 $stmt = $pdo->prepare("UPDATE product_skus SET locked_stock = GREATEST(0, locked_stock - ?) WHERE id = ?");
                 $stmt->execute([$item['quantity'], $item['sku_id']]);
 
-                $logStmt->execute([$item['product_id'], $item['quantity'], $currentStock, $currentStock, $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $currentStock, $currentStock, $order['order_no']]);
             } else {
                 // 释放inventory库存
                 $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
@@ -1128,7 +1279,7 @@ function handleOrderCancel(): void
                 $stmt = $pdo->prepare("UPDATE inventory SET locked_stock = GREATEST(0, locked_stock - ?) WHERE product_id = ?");
                 $stmt->execute([$item['quantity'], $item['product_id']]);
 
-                $logStmt->execute([$item['product_id'], $item['quantity'], $currentStock, $currentStock, $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $currentStock, $currentStock, $order['order_no']]);
             }
         }
         
@@ -1578,7 +1729,7 @@ function handlePayOrder(): void
         $stmt->execute([$orderId]);
         $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_id, remark) VALUES (?, 2, ?, ?, ?, ?, '支付扣减库存')");
+        $logStmt = $pdo->prepare("INSERT INTO inventory_logs (product_id, type, quantity, before_stock, after_stock, order_no, reason) VALUES (?, 2, ?, ?, ?, ?, '支付扣减库存')");
         foreach ($items as $item) {
             if ($item['sku_id']) {
                 // 扣减SKU库存
@@ -1589,7 +1740,7 @@ function handlePayOrder(): void
                 $stmt = $pdo->prepare("UPDATE product_skus SET stock = stock - ?, locked_stock = GREATEST(0, locked_stock - ?) WHERE id = ?");
                 $stmt->execute([$item['quantity'], $item['quantity'], $item['sku_id']]);
 
-                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock - (int)$item['quantity'], $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock - (int)$item['quantity'], $order['order_no']]);
             } else {
                 // 扣减inventory库存
                 $stk = $pdo->prepare("SELECT stock FROM inventory WHERE product_id = ?");
@@ -1599,7 +1750,7 @@ function handlePayOrder(): void
                 $stmt = $pdo->prepare("UPDATE inventory SET stock = stock - ?, locked_stock = GREATEST(0, locked_stock - ?) WHERE product_id = ?");
                 $stmt->execute([$item['quantity'], $item['quantity'], $item['product_id']]);
 
-                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock - (int)$item['quantity'], $orderId]);
+                $logStmt->execute([$item['product_id'], $item['quantity'], $beforeStock, $beforeStock - (int)$item['quantity'], $order['order_no']]);
             }
         }
         

@@ -193,10 +193,10 @@
                             <h4>选择规格</h4>
                             ${product.spec_list.map(spec => `
                                 <div class="spec-group">
-                                    <div class="spec-label">${escapeHtml(spec.attr_name)}：</div>
+                                    <div class="spec-label">${escapeHtml(spec.name)}：</div>
                                     <div class="spec-values">
                                         ${spec.values.map(v => `
-                                            <button class="spec-btn" data-attr="${escapeHtml(spec.attr_name)}" data-value="${escapeHtml(v)}" onclick="selectSpec(this, '${escapeHtml(spec.attr_name)}', '${escapeHtml(v)}')">${escapeHtml(v)}</button>
+                                            <button class="spec-btn" data-attr="${escapeHtml(spec.name)}" data-value="${escapeHtml(v.value)}" onclick="selectSpec(this, '${escapeHtml(spec.name)}', '${escapeHtml(v.value)}')">${escapeHtml(v.value)}</button>
                                         `).join('')}
                                     </div>
                                 </div>
@@ -215,6 +215,12 @@
                                     onclick="addToCart(${product.id})"
                                     ${product.available_stock <= 0 ? 'disabled' : ''}>
                                 ${product.available_stock > 0 ? '加入购物车' : '暂时缺货'}
+                            </button>
+                            <button class="btn btn-buy-now" id="buyNowBtn"
+                                    onclick="buyNow(${product.id})"
+                                    ${product.available_stock <= 0 ? 'disabled' : ''}
+                                    style="background:#ff4400;color:#fff;border:none;padding:12px 30px;border-radius:4px;font-size:15px;cursor:pointer;margin-left:10px;">
+                                ${product.available_stock > 0 ? '立即购买' : '暂时缺货'}
                             </button>
                             <button class="btn btn-favorite ${product.is_favorited ? 'favorited' : ''}" 
                                     id="favoriteBtn"
@@ -389,6 +395,29 @@
             }
         }
 
+        // 立即购买
+        function buyNow(productId) {
+            if (!Auth.isLoggedIn()) {
+                if (confirm('请先登录后再购买，是否前往登录？')) {
+                    window.location.href = 'login.html';
+                }
+                return;
+            }
+
+            // 如果有SKU规格，必须先选择
+            if (currentProduct && currentProduct.spec_list && currentProduct.spec_list.length > 0 && !selectedSkuId) {
+                alert('请先选择商品规格');
+                return;
+            }
+
+            const quantity = parseInt(document.getElementById('quantity').value) || 1;
+            let url = `checkout.html?mode=direct&product_id=${productId}&quantity=${quantity}`;
+            if (selectedSkuId) {
+                url += `&sku_id=${selectedSkuId}`;
+            }
+            window.location.href = url;
+        }
+
         // SKU规格选择
         function selectSpec(btn, attrName, value) {
             // 切换选中状态
@@ -410,6 +439,7 @@
             selectedSkuId = null;
             const infoEl = document.getElementById('skuSelectedInfo');
             const cartBtn = document.getElementById('addCartBtn');
+            const buyBtn = document.getElementById('buyNowBtn');
             const stockEl = document.getElementById('stockStatusText');
             const qtyInput = document.getElementById('quantity');
 
@@ -426,6 +456,10 @@
                     : '<span class="stock-out">暂时缺货</span>';
                 cartBtn.disabled = currentProduct.available_stock <= 0;
                 cartBtn.textContent = currentProduct.available_stock > 0 ? '加入购物车' : '暂时缺货';
+                if (buyBtn) {
+                    buyBtn.disabled = currentProduct.available_stock <= 0;
+                    buyBtn.textContent = currentProduct.available_stock > 0 ? '立即购买' : '暂时缺货';
+                }
                 qtyInput.max = currentProduct.available_stock;
                 return;
             }
@@ -438,7 +472,7 @@
             const matchedSku = currentProduct.skus.find(sku => {
                 if (!sku.attributes) return false;
                 return Object.entries(selectedSpecs).every(([attrName, value]) => {
-                    return sku.attributes.some(a => a.attr_name === attrName && a.value === value);
+                    return sku.attributes.some(a => a.attribute_name === attrName && a.attribute_value === value);
                 }) && sku.attributes.length === selectedCount;
             });
 
@@ -464,6 +498,10 @@
 
                 cartBtn.disabled = skuAvailable <= 0;
                 cartBtn.textContent = skuAvailable > 0 ? '加入购物车' : '暂时缺货';
+                if (buyBtn) {
+                    buyBtn.disabled = skuAvailable <= 0;
+                    buyBtn.textContent = skuAvailable > 0 ? '立即购买' : '暂时缺货';
+                }
                 qtyInput.max = skuAvailable;
                 if (parseInt(qtyInput.value) > skuAvailable) qtyInput.value = Math.max(1, skuAvailable);
                 

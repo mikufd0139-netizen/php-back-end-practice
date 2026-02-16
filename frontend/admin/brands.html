@@ -126,9 +126,8 @@
 
     <script src="js/admin-api.js"></script>
     <script>
-        if (!AdminAuth.requireLogin()) {}
-
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (!await AdminAuth.requireLoginAsync()) return;
             loadAdminInfo();
             loadBrands();
         });

@@ -130,11 +130,9 @@
 
     <script src="js/admin-api.js"></script>
     <script>
-        // 检查登录状态
-        if (!AdminAuth.requireLogin()) {}
-
         // 页面加载
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (!await AdminAuth.requireLoginAsync()) return;
             loadAdminInfo();
             loadUserStats();
             loadProductStats();

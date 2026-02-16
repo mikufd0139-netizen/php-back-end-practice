@@ -110,16 +110,11 @@
 
     <script src="js/admin-api.js"></script>
     <script>
-        // 检查登录
-        if (!AdminAuth.requireLogin()) {
-            console.log('未登录，跳转到登录页');
-        }
-
         // 分类数据缓存
         let categories = [];
 
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('页面加载完成，开始加载数据...');
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (!await AdminAuth.requireLoginAsync()) return;
             loadAdminInfo();
             loadCategories();
         });

@@ -82,13 +82,9 @@
         let totalPages = 1;
         const pageSize = 10;
 
-        // 检查登录状态
-        if (!AdminAuth.requireLogin()) {
-            // 会自动跳转
-        }
-
         // 页面加载
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (!await AdminAuth.requireLoginAsync()) return;
             loadAdminInfo();
             loadUsers();
         });

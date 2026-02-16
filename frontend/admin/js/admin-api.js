@@ -319,5 +319,39 @@ const AdminAuth = {
             return false;
         }
         return true;
+    },
+
+    /**
+     * 验证后端 session 是否仍然是管理员
+     * 防止前台登录普通用户后覆盖了管理员 session
+     */
+    async checkSession() {
+        try {
+            const result = await AdminAPI.getUserCount();
+            if (!result.success) {
+                // session 已失效或不是管理员，尝试重新登录
+                const user = this.getUser();
+                if (user) {
+                    // localStorage 有管理员信息但 session 丢失，清除并跳转登录
+                    this.clearUser();
+                }
+                window.location.href = 'login.html';
+                return false;
+            }
+            return true;
+        } catch (e) {
+            return true; // 网络错误时不阻止使用
+        }
+    },
+
+    /**
+     * 要求登录并验证 session
+     */
+    async requireLoginAsync() {
+        if (!this.isLoggedIn()) {
+            window.location.href = 'login.html';
+            return false;
+        }
+        return await this.checkSession();
     }
 };

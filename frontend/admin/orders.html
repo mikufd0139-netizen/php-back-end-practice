@@ -121,8 +121,8 @@
         let totalPages = 1;
         const pageSize = 20;
 
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!AdminAuth.requireLogin()) return;
+        document.addEventListener('DOMContentLoaded', async function() {
+            if (!await AdminAuth.requireLoginAsync()) return;
             const user = AdminAuth.getUser();
             document.getElementById('adminName').textContent = user?.username || '管理员';
             loadOrders();
